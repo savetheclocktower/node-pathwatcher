@@ -115,12 +115,12 @@ describe('PathWatcher', () => {
     });
   });
 
-  // TODO: This test has never worked. It incorrectly passes on `master`
-  // because of a typo. This needs to be fixed somehow.
-  xdescribe('when a new file is created under a watched directory', () => {
+  describe('when a new file is created under a watched directory', () => {
     it('fires the callback with the change event and empty path', (done) => {
-
       let newFile = path.join(tempDir, 'file');
+      if (fs.existsSync(newFile)) {
+        fs.unlinkSync(newFile);
+      }
       PathWatcher.watch(tempDir, (type, path) => {
         fs.unlinkSync(newFile);
         expect(type).toBe('change');
