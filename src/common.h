@@ -7,7 +7,8 @@
 using namespace Napi;
 
 #ifdef _WIN32
-// Platform-dependent definetion of handle.
+#include <WinNT.h>
+// Platform-dependent definition of HANDLE.
 typedef HANDLE WatcherHandle;
 
 // Conversion between V8 value and WatcherHandle.
@@ -15,7 +16,7 @@ Napi::Value WatcherHandleToV8Value(WatcherHandle handle);
 WatcherHandle V8ValueToWatcherHandle(Napi::Value value);
 bool IsV8ValueWatcherHandle(Napi::Value value);
 #else
-// Correspoding definetions on OS X and Linux.
+// Correspoding definitions on OS X and Linux.
 typedef int32_t WatcherHandle;
 #define WatcherHandleToV8Value(h, e) Napi::Number::New(e, h)
 #define V8ValueToWatcherHandle(v) v.Int32Value()
