@@ -19,25 +19,37 @@ void PlatformInit() {
     g_init_errno = errno;
     return;
   }
-
-  WakeupNewThread();
 }
 
-void PlatformThread() {
+void PlatformThread(
+  const PathWatcherWorker::ExecutionProgress& progress,
+  bool& shouldStop
+) {
   // Needs to be large enough for sizeof(inotify_event) + strlen(filename).
   char buf[4096];
 
-  while (true) {
-    int size;
-    do {
-      size = read(g_inotify, buf, sizeof(buf));
-    } while (size == -1 && errno == EINTR);
+  while (!shouldStop) {
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(g_inotify, &read_fds);
 
-    if (size == -1) {
-      break;
-    } else if (size == 0) {
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000; // 100ms timeout
+
+    int ret = select(g_inotify + 1, &read_fds, NULL, NULL, &tv);
+
+    if (ret == -1 && errno != EINTR) {
       break;
     }
+
+    if (ret == 0) {
+      // Timeout.
+      continue;
+    }
+
+    int size = read(g_inotify, buf, sizeof(buf));
+    if (size <= 0) break;
 
     inotify_event* e;
     for (char* p = buf; p < buf + size; p += sizeof(*e) + e->len) {
@@ -57,7 +69,8 @@ void PlatformThread() {
         continue;
       }
 
-      PostEventAndWait(type, fd, path);
+      PathWatcherEvent event(type, fd, path);
+      progress.Send(&event, 1);
     }
   }
 }
