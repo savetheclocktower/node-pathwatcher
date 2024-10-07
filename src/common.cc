@@ -1,5 +1,6 @@
 #include "common.h"
 #include "addon-data.h"
+#include "uv.h"
 
 using namespace Napi;
 
