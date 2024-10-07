@@ -6,7 +6,7 @@
 #include <sys/types.h>
 
 #include <algorithm>
-
+#include <fcntl.h>
 #include "common.h"
 
 // test for descriptor event notification, if not available set to O_RDONLY
@@ -53,8 +53,6 @@ void PlatformThread(
     EVENT_TYPE type;
     int fd = static_cast<int>(event.ident);
     std::vector<char> path;
-
-    // std::cout << "EVENT delete: " << (event.fflags & NOTE_DELETE) << " write: " << (event.fflags & NOTE_WRITE) << " rename: " << (event.fflags & NOTE_RENAME) << "empty: " << (event.fflags & NOTE_ATTRIB && lseek(fd, 0, SEEK_END) == 0) << std::endl;
 
     if (event.fflags & NOTE_WRITE) {
       type = EVENT_CHANGE;
