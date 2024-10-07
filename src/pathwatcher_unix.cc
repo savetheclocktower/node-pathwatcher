@@ -19,8 +19,12 @@
 // see: http://fxr.watson.org/fxr/source/bsd/sys/fcntl.h?v=xnu-792.6.70
 #ifndef F_GETPATH
 #define F_GETPATH 50
+
 #endif
 
+// NOTE: You might see the globals and get nervous here. Our working theory is
+// that this this is fine; this is thread-safe without having to be isolated
+// between contexts.
 static int g_kqueue;
 static int g_init_errno;
 
@@ -30,22 +34,27 @@ void PlatformInit() {
     g_init_errno = errno;
     return;
   }
-
-  WakeupNewThread();
 }
 
-void PlatformThread() {
+void PlatformThread(
+  const PathWatcherWorker::ExecutionProgress& progress,
+  bool& shouldStop
+) {
   struct kevent event;
+  struct timespec timeout = { 0, 500000000 };
 
-  while (true) {
+  while (!shouldStop) {
     int r;
     do {
-      r = kevent(g_kqueue, NULL, 0, &event, 1, NULL);
+      if (shouldStop) return;
+      r = kevent(g_kqueue, NULL, 0, &event, 1, &timeout);
     } while ((r == -1 && errno == EINTR) || r == 0);
 
     EVENT_TYPE type;
     int fd = static_cast<int>(event.ident);
     std::vector<char> path;
+
+    // std::cout << "EVENT delete: " << (event.fflags & NOTE_DELETE) << " write: " << (event.fflags & NOTE_WRITE) << " rename: " << (event.fflags & NOTE_RENAME) << "empty: " << (event.fflags & NOTE_ATTRIB && lseek(fd, 0, SEEK_END) == 0) << std::endl;
 
     if (event.fflags & NOTE_WRITE) {
       type = EVENT_CHANGE;
@@ -68,7 +77,8 @@ void PlatformThread() {
       continue;
     }
 
-    PostEventAndWait(type, fd, path);
+    PathWatcherEvent event(type, fd, path);
+    progress.Send(&event, 1);
   }
 }
 
@@ -82,7 +92,7 @@ WatcherHandle PlatformWatch(const char* path) {
     return -errno;
   }
 
-  struct timespec timeout = { 0, 0 };
+  struct timespec timeout = { 0, 50000000 };
   struct kevent event;
   int filter = EVFILT_VNODE;
   int flags = EV_ADD | EV_ENABLE | EV_CLEAR;
@@ -95,6 +105,7 @@ WatcherHandle PlatformWatch(const char* path) {
 
   return fd;
 }
+
 
 void PlatformUnwatch(WatcherHandle fd) {
   close(fd);

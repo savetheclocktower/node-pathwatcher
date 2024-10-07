@@ -3,27 +3,26 @@
 
 #include <vector>
 
-#include "nan.h"
-using namespace v8;
+#include "napi.h"
+using namespace Napi;
 
 #ifdef _WIN32
 // Platform-dependent definetion of handle.
 typedef HANDLE WatcherHandle;
 
 // Conversion between V8 value and WatcherHandle.
-Local<Value> WatcherHandleToV8Value(WatcherHandle handle);
-WatcherHandle V8ValueToWatcherHandle(Local<Value> value);
-bool IsV8ValueWatcherHandle(Local<Value> value);
+Napi::Value WatcherHandleToV8Value(WatcherHandle handle);
+WatcherHandle V8ValueToWatcherHandle(Napi::Value value);
+bool IsV8ValueWatcherHandle(Napi::Value value);
 #else
 // Correspoding definetions on OS X and Linux.
 typedef int32_t WatcherHandle;
-#define WatcherHandleToV8Value(h) Nan::New<Integer>(h)
-#define V8ValueToWatcherHandle(v) v->Int32Value(Nan::GetCurrentContext()).FromJust()
-#define IsV8ValueWatcherHandle(v) v->IsInt32()
+#define WatcherHandleToV8Value(h, e) Napi::Number::New(e, h)
+#define V8ValueToWatcherHandle(v) v.Int32Value()
+#define IsV8ValueWatcherHandle(v) v.IsNumber()
 #endif
 
 void PlatformInit();
-void PlatformThread();
 WatcherHandle PlatformWatch(const char* path);
 void PlatformUnwatch(WatcherHandle handle);
 bool PlatformIsHandleValid(WatcherHandle handle);
@@ -40,17 +39,80 @@ enum EVENT_TYPE {
   EVENT_CHILD_CREATE,
 };
 
-void WaitForMainThread();
-void WakeupNewThread();
-void PostEventAndWait(EVENT_TYPE type,
-                      WatcherHandle handle,
-                      const std::vector<char>& new_path,
-                      const std::vector<char>& old_path = std::vector<char>());
+struct PathWatcherEvent {
+  EVENT_TYPE type;
+  WatcherHandle handle;
+  std::vector<char> new_path;
+  std::vector<char> old_path;
 
-void CommonInit();
+  // Default constructor
+  PathWatcherEvent() = default;
 
-NAN_METHOD(SetCallback);
-NAN_METHOD(Watch);
-NAN_METHOD(Unwatch);
+  // Constructor
+  PathWatcherEvent(EVENT_TYPE t, WatcherHandle h, const std::vector<char>& np, const std::vector<char>& op = std::vector<char>())
+    : type(t), handle(h), new_path(np), old_path(op) {}
+
+  // Copy constructor
+  PathWatcherEvent(const PathWatcherEvent& other)
+    : type(other.type), handle(other.handle), new_path(other.new_path), old_path(other.old_path) {}
+
+  // Copy assignment operator
+  PathWatcherEvent& operator=(const PathWatcherEvent& other) {
+    if (this != &other) {
+      type = other.type;
+      handle = other.handle;
+      new_path = other.new_path;
+      old_path = other.old_path;
+    }
+    return *this;
+  }
+
+  // Move constructor
+  PathWatcherEvent(PathWatcherEvent&& other) noexcept
+    : type(other.type), handle(other.handle),
+    new_path(std::move(other.new_path)), old_path(std::move(other.old_path)) {}
+
+  // Move assignment operator
+  PathWatcherEvent& operator=(PathWatcherEvent&& other) noexcept {
+    if (this != &other) {
+      type = other.type;
+      handle = other.handle;
+      new_path = std::move(other.new_path);
+      old_path = std::move(other.old_path);
+    }
+    return *this;
+  }
+};
+
+using namespace Napi;
+
+inline Function EMPTY_OK = *(new Napi::Function());
+
+class PathWatcherWorker: public AsyncProgressQueueWorker<PathWatcherEvent> {
+  public:
+    PathWatcherWorker(Napi::Env env, Function &progressCallback);
+
+    ~PathWatcherWorker() {}
+
+    void Execute(const PathWatcherWorker::ExecutionProgress& progress) override;
+    void OnOK() override;
+
+    void OnProgress(const PathWatcherEvent* data, size_t) override;
+    void Stop();
+
+  private:
+    bool shouldStop = false;
+    FunctionReference progressCallback;
+
+    const char* GetEventTypeString(EVENT_TYPE type);
+};
+
+void PlatformThread(const PathWatcherWorker::ExecutionProgress& progress, bool& shouldStop);
+
+void CommonInit(Napi::Env env);
+
+Napi::Value SetCallback(const Napi::CallbackInfo& info);
+Napi::Value Watch(const Napi::CallbackInfo& info);
+Napi::Value Unwatch(const Napi::CallbackInfo& info);
 
 #endif  // SRC_COMMON_H_
