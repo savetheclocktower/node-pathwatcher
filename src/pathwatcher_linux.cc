@@ -26,7 +26,7 @@ void PlatformThread(
   const PathWatcherWorker::ExecutionProgress& progress,
   bool& shouldStop
 ) {
-  std::cout << "PlatformThread START" << std::endl;
+  // std::cout << "PlatformThread START" << std::endl;
   // Needs to be large enough for sizeof(inotify_event) + strlen(filename).
   char buf[4096];
 
@@ -76,7 +76,7 @@ void PlatformThread(
     }
   }
 
-  std::cout << "PlatformThread END" << std::endl;
+  // std::cout << "PlatformThread END" << std::endl;
 }
 
 WatcherHandle PlatformWatch(const char* path) {
