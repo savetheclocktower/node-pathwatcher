@@ -86,9 +86,6 @@ Napi::Value SetCallback(const Napi::CallbackInfo& info) {
   }
 
   auto addonData = env.GetInstanceData<AddonData>();
-  if (addonData->worker) {
-    addonData->worker->Stop();
-  }
   addonData->callback.Reset(info[0].As<Napi::Function>(), 1);
 
   return env.Undefined();
