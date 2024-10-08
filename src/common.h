@@ -1,13 +1,24 @@
 #ifndef SRC_COMMON_H_
 #define SRC_COMMON_H_
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
 #include <vector>
 
 #include "napi.h"
 using namespace Napi;
 
 #ifdef _WIN32
-#include <windows.h>
 // Platform-dependent definition of HANDLE.
 typedef HANDLE WatcherHandle;
 
