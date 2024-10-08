@@ -132,7 +132,8 @@ void PlatformThread(
   const PathWatcherWorker::ExecutionProgress& progress,
   bool& shouldStop
 ) {
-  while (true) {
+  std::cout << "PlatformThread" << std::endl;
+  while (!shouldStop) {
     // Do not use g_events directly, since reallocation could happen when there
     // are new watchers adding to g_events when WaitForMultipleObjects is still
     // polling.
@@ -144,8 +145,14 @@ void PlatformThread(
     DWORD r = WaitForMultipleObjects(copied_events.size(),
                                      copied_events.data(),
                                      FALSE,
-                                     INFINITE);
+                                     100);
     SetEvent(g_file_handles_free_event);
+
+    if (r == WAIT_TIMEOUT) {
+      // Timeout occurred, check shouldStop flag
+      continue;
+    }
+
     int i = r - WAIT_OBJECT_0;
     if (i >= 0 && i < copied_events.size()) {
       // It's a wake up event, there is no fs events.
@@ -255,6 +262,7 @@ void PlatformThread(
 }
 
 WatcherHandle PlatformWatch(const char* path) {
+  std::cout << "PlatformWatch" << std::endl;
   wchar_t wpath[MAX_PATH] = { 0 };
   MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, MAX_PATH);
 
@@ -295,6 +303,7 @@ WatcherHandle PlatformWatch(const char* path) {
 }
 
 void PlatformUnwatch(WatcherHandle key) {
+  std::cout << "PlatformUnwatch" << std::endl;
   if (PlatformIsHandleValid(key)) {
     HandleWrapper* handle;
     {

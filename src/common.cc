@@ -22,6 +22,7 @@ void PathWatcherWorker::Execute(
 }
 
 void PathWatcherWorker::Stop() {
+  std::cout << "PathWatcherWorker::Stop" << std::endl;
   shouldStop = true;
 }
 
@@ -56,6 +57,7 @@ void PathWatcherWorker::OnOK() {}
 
 // Called when the first watcher is created.
 void Start(Napi::Env env) {
+  std::cout << "Start" << std::endl;
   Napi::HandleScope scope(env);
   auto addonData = env.GetInstanceData<AddonData>();
   if (!addonData->callback) {
@@ -70,6 +72,7 @@ void Start(Napi::Env env) {
 
 // Called when the last watcher is stopped.
 void Stop(Napi::Env env) {
+  std::cout << "Stop" << std::endl;
   auto addonData = env.GetInstanceData<AddonData>();
   if (addonData->worker) {
     addonData->worker->Stop();
@@ -77,6 +80,7 @@ void Stop(Napi::Env env) {
 }
 
 Napi::Value SetCallback(const Napi::CallbackInfo& info) {
+  std::cout << "SetCallback" << std::endl;
   auto env = info.Env();
   Napi::HandleScope scope(env);
 
@@ -86,12 +90,17 @@ Napi::Value SetCallback(const Napi::CallbackInfo& info) {
   }
 
   auto addonData = env.GetInstanceData<AddonData>();
+  if (addonData->worker) {
+    std::cout << "Worker already exists" << std::endl;
+
+  }
   addonData->callback.Reset(info[0].As<Napi::Function>(), 1);
 
   return env.Undefined();
 }
 
 Napi::Value Watch(const Napi::CallbackInfo& info) {
+  std::cout << "Watch" << std::endl;
   auto env = info.Env();
   auto addonData = env.GetInstanceData<AddonData>();
   Napi::HandleScope scope(env);
@@ -127,6 +136,7 @@ Napi::Value Watch(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value Unwatch(const Napi::CallbackInfo& info) {
+  std::cout << "Unwatch" << std::endl;
   auto env = info.Env();
   auto addonData = env.GetInstanceData<AddonData>();
   Napi::HandleScope scope(env);
