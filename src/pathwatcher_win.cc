@@ -117,7 +117,7 @@ WatcherHandle V8ValueToWatcherHandle(Napi::Value value) {
 }
 
 bool IsV8ValueWatcherHandle(Napi::Value value) {
-  return value->IsBigInt();
+  return value.IsBigInt();
 }
 
 void PlatformInit(Napi::Env _env) {
