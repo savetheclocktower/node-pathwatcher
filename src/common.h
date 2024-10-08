@@ -7,7 +7,7 @@
 using namespace Napi;
 
 #ifdef _WIN32
-#include <WinNT.h>
+#include <windows.h>
 // Platform-dependent definition of HANDLE.
 typedef HANDLE WatcherHandle;
 
