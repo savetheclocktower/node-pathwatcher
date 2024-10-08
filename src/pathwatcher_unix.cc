@@ -45,7 +45,7 @@ void PlatformThread(
 ) {
   auto addonData = env.GetInstanceData<AddonData>();
   int l_kqueue = addonData->kqueue;
-  std::cout << "PlatformThread " << std::this_thread::get_id() << std::endl;
+  // std::cout << "PlatformThread " << std::this_thread::get_id() << std::endl;
   struct kevent event;
   struct timespec timeout = { 0, 500000000 };
 
@@ -81,7 +81,7 @@ void PlatformThread(
       continue;
     }
 
-    std::cout << "PlatformThread EVENT " << std::this_thread::get_id() << std::endl;
+    // std::cout << "PlatformThread EVENT " << std::this_thread::get_id() << std::endl;
     PathWatcherEvent event(type, fd, path);
     progress.Send(&event, 1);
   }
@@ -95,7 +95,7 @@ WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
 
   int fd = open(path, O_EVTONLY, 0);
   if (fd < 0) {
-    return -addonData->init_errno;
+    return -errno;
   }
 
   struct timespec timeout = { 0, 50000000 };
@@ -106,7 +106,7 @@ WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
   EV_SET(&event, fd, filter, flags, fflags, 0, reinterpret_cast<void*>(const_cast<char*>(path)));
   int r = kevent(addonData->kqueue, &event, 1, NULL, 0, &timeout);
   if (r == -1) {
-    return -addonData->init_errno;
+    return -errno;
   }
 
   return fd;

@@ -10,14 +10,16 @@
 #include <iostream>
 
 #include "common.h"
+#include "addon-data.h"
 
-static int g_inotify;
-static int g_init_errno;
+// static int g_inotify;
+// static int g_init_errno;
 
-void PlatformInit(Napi::Env _env) {
-  g_inotify = inotify_init();
-  if (g_inotify == -1) {
-    g_init_errno = errno;
+void PlatformInit(Napi::Env env) {
+  auto addonData = env.GetInstanceData<AddonData>();
+  addonData->inotify = inotify_init();
+  if (addonData->inotify == -1) {
+    addonData->init_errno = errno;
     return;
   }
 }
@@ -27,6 +29,7 @@ void PlatformThread(
   bool& shouldStop,
   Napi::Env env
 ) {
+  auto addonData = env.GetInstanceData<AddonData>();
   // std::cout << "PlatformThread START" << std::endl;
   // Needs to be large enough for sizeof(inotify_event) + strlen(filename).
   char buf[4096];
@@ -34,13 +37,13 @@ void PlatformThread(
   while (!shouldStop) {
     fd_set read_fds;
     FD_ZERO(&read_fds);
-    FD_SET(g_inotify, &read_fds);
+    FD_SET(addonData->inotify, &read_fds);
 
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 100000; // 100ms timeout
 
-    int ret = select(g_inotify + 1, &read_fds, NULL, NULL, &tv);
+    int ret = select(addonData->inotify + 1, &read_fds, NULL, NULL, &tv);
 
     if (ret == -1 && errno != EINTR) {
       break;
@@ -51,7 +54,7 @@ void PlatformThread(
       continue;
     }
 
-    int size = read(g_inotify, buf, sizeof(buf));
+    int size = read(addonData->inotify, buf, sizeof(buf));
     if (size <= 0) break;
 
     inotify_event* e;
@@ -81,11 +84,11 @@ void PlatformThread(
 }
 
 WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
-  if (g_inotify == -1) {
-    return -g_init_errno;
+  if (addonData->inotify == -1) {
+    return -addonData->init_errno;
   }
 
-  int fd = inotify_add_watch(g_inotify, path, IN_ATTRIB | IN_CREATE |
+  int fd = inotify_add_watch(addonData->inotify, path, IN_ATTRIB | IN_CREATE |
       IN_DELETE | IN_MODIFY | IN_MOVE | IN_MOVE_SELF | IN_DELETE_SELF);
   if (fd == -1) {
     return -errno;
@@ -94,7 +97,8 @@ WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
 }
 
 void PlatformUnwatch(WatcherHandle fd, Napi::Env env) {
-  inotify_rm_watch(g_inotify, fd);
+  auto addonData = env.GetInstanceData<AddonData>();
+  inotify_rm_watch(addonData->inotify, fd);
 }
 
 bool PlatformIsHandleValid(WatcherHandle handle) {
