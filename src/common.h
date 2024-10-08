@@ -35,8 +35,8 @@ typedef int32_t WatcherHandle;
 #endif
 
 void PlatformInit(Napi::Env env);
-WatcherHandle PlatformWatch(const char* path);
-void PlatformUnwatch(WatcherHandle handle);
+WatcherHandle PlatformWatch(const char* path, Napi::Env env);
+void PlatformUnwatch(WatcherHandle handle, Napi::Env env);
 bool PlatformIsHandleValid(WatcherHandle handle);
 int PlatformInvalidHandleToErrorNumber(WatcherHandle handle);
 
@@ -113,13 +113,14 @@ class PathWatcherWorker: public AsyncProgressQueueWorker<PathWatcherEvent> {
     void Stop();
 
   private:
+    Napi::Env _env;
     bool shouldStop = false;
     FunctionReference progressCallback;
 
     const char* GetEventTypeString(EVENT_TYPE type);
 };
 
-void PlatformThread(const PathWatcherWorker::ExecutionProgress& progress, bool& shouldStop);
+void PlatformThread(const PathWatcherWorker::ExecutionProgress& progress, bool& shouldStop, Napi::Env env);
 
 void CommonInit(Napi::Env env);
 

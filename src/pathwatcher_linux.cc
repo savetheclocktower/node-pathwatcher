@@ -24,7 +24,8 @@ void PlatformInit(Napi::Env _env) {
 
 void PlatformThread(
   const PathWatcherWorker::ExecutionProgress& progress,
-  bool& shouldStop
+  bool& shouldStop,
+  Napi::Env env
 ) {
   // std::cout << "PlatformThread START" << std::endl;
   // Needs to be large enough for sizeof(inotify_event) + strlen(filename).
@@ -79,7 +80,7 @@ void PlatformThread(
   // std::cout << "PlatformThread END" << std::endl;
 }
 
-WatcherHandle PlatformWatch(const char* path) {
+WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
   if (g_inotify == -1) {
     return -g_init_errno;
   }
@@ -92,7 +93,7 @@ WatcherHandle PlatformWatch(const char* path) {
   return fd;
 }
 
-void PlatformUnwatch(WatcherHandle fd) {
+void PlatformUnwatch(WatcherHandle fd, Napi::Env env) {
   inotify_rm_watch(g_inotify, fd);
 }
 

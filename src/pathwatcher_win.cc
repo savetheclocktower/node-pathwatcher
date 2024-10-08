@@ -132,7 +132,7 @@ void PlatformThread(
   const PathWatcherWorker::ExecutionProgress& progress,
   bool& shouldStop
 ) {
-  std::cout << "PlatformThread" << std::endl;
+  // std::cout << "PlatformThread" << std::endl;
   while (!shouldStop) {
     // Do not use g_events directly, since reallocation could happen when there
     // are new watchers adding to g_events when WaitForMultipleObjects is still
@@ -261,8 +261,8 @@ void PlatformThread(
   }
 }
 
-WatcherHandle PlatformWatch(const char* path) {
-  std::cout << "PlatformWatch" << std::endl;
+WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
+  // std::cout << "PlatformWatch" << std::endl;
   wchar_t wpath[MAX_PATH] = { 0 };
   MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, MAX_PATH);
 
@@ -302,8 +302,8 @@ WatcherHandle PlatformWatch(const char* path) {
   return handle.release()->overlapped.hEvent;
 }
 
-void PlatformUnwatch(WatcherHandle key) {
-  std::cout << "PlatformUnwatch" << std::endl;
+void PlatformUnwatch(WatcherHandle key, Napi::Env env) {
+  // std::cout << "PlatformUnwatch" << std::endl;
   if (PlatformIsHandleValid(key)) {
     HandleWrapper* handle;
     {

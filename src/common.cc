@@ -12,7 +12,7 @@ void CommonInit(Napi::Env env) {
 }
 
 PathWatcherWorker::PathWatcherWorker(Napi::Env env, Function &progressCallback) :
-  AsyncProgressQueueWorker(env) {
+  AsyncProgressQueueWorker(env), _env(env) {
   shouldStop = false;
   this->progressCallback.Reset(progressCallback);
 }
@@ -20,7 +20,7 @@ PathWatcherWorker::PathWatcherWorker(Napi::Env env, Function &progressCallback) 
 void PathWatcherWorker::Execute(
   const PathWatcherWorker::ExecutionProgress& progress
 ) {
-  PlatformThread(progress, shouldStop);
+  PlatformThread(progress, shouldStop, _env);
 }
 
 void PathWatcherWorker::Stop() {
@@ -113,7 +113,7 @@ Napi::Value Watch(const Napi::CallbackInfo& info) {
 
   Napi::String path = info[0].ToString();
   std::string cppPath(path);
-  WatcherHandle handle = PlatformWatch(cppPath.c_str());
+  WatcherHandle handle = PlatformWatch(cppPath.c_str(), env);
 
   if (!PlatformIsHandleValid(handle)) {
     int error_number = PlatformInvalidHandleToErrorNumber(handle);
@@ -156,7 +156,7 @@ Napi::Value Unwatch(const Napi::CallbackInfo& info) {
   Napi::Number num = info[0].ToNumber();
 #endif
 
-  PlatformUnwatch(V8ValueToWatcherHandle(num));
+  PlatformUnwatch(V8ValueToWatcherHandle(num), env);
 
   if (--addonData->watch_count == 0)
     Stop(env);
