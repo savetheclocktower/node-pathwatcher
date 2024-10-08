@@ -1,14 +1,14 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <iostream>
 
 #include "common.h"
+#include "js_native_api_types.h"
+#include "napi.h"
 
 // Size of the buffer to store result of ReadDirectoryChangesW.
 static const unsigned int kDirectoryWatcherBufferSize = 4096;
-
-// Object template to create representation of WatcherHandle.
-static Nan::Persistent<ObjectTemplate> g_object_template;
 
 // Mutex for the HandleWrapper map.
 static uv_mutex_t g_handle_wrap_map_mutex;
@@ -98,37 +98,39 @@ static bool QueueReaddirchanges(HandleWrapper* handle) {
                                NULL) == TRUE;
 }
 
-Local<Value> WatcherHandleToV8Value(WatcherHandle handle) {
-  Local<v8::Context> context = Nan::GetCurrentContext();
-  Local<Value> value = Nan::New(g_object_template)->NewInstance(context).ToLocalChecked();
-  Nan::SetInternalFieldPointer(value->ToObject(context).ToLocalChecked(), 0, handle);
-  return value;
+Napi::Value WatcherHandleToV8Value(WatcherHandle handle, Napi::Env env) {
+  uint64_t HandleInt = reinterpret_cast<uint64_t>(handle);
+  return Napi::BigInt::New(env,  handleInt);
 }
 
 WatcherHandle V8ValueToWatcherHandle(Local<Value> value) {
-  return reinterpret_cast<WatcherHandle>(Nan::GetInternalFieldPointer(
-    value->ToObject(Nan::GetCurrentContext()).ToLocalChecked(), 0));
+  if (!value.IsBigInt()) {
+    return NULL;
+  }
+  bool lossless;
+  uint64_t handleInt = value.As<Napi::BigInt>().Uint64Value(&lossless);
+  if (!lossless) {
+    return NULL;
+  }
+  return reinterpret_cast<HANDLE>(handleInt);
 }
 
 bool IsV8ValueWatcherHandle(Local<Value> value) {
-  return value->IsObject() &&
-    value->ToObject(Nan::GetCurrentContext()).ToLocalChecked()->InternalFieldCount() == 1;
+  return value->IsBigInt();
 }
 
-void PlatformInit() {
+void PlatformInit(Napi::Env _env) {
   uv_mutex_init(&g_handle_wrap_map_mutex);
 
   g_file_handles_free_event = CreateEvent(NULL, TRUE, TRUE, NULL);
   g_wake_up_event = CreateEvent(NULL, FALSE, FALSE, NULL);
   g_events.push_back(g_wake_up_event);
-
-  g_object_template.Reset(Nan::New<ObjectTemplate>());
-  Nan::New(g_object_template)->SetInternalFieldCount(1);
-
-  WakeupNewThread();
 }
 
-void PlatformThread() {
+void PlatformThread(
+  const PathWatcherWorker::ExecutionProgress& progress,
+  bool& shouldStop
+) {
   while (true) {
     // Do not use g_events directly, since reallocation could happen when there
     // are new watchers adding to g_events when WaitForMultipleObjects is still
