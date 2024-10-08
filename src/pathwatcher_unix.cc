@@ -28,7 +28,7 @@
 static int g_kqueue;
 static int g_init_errno;
 
-void PlatformInit() {
+void PlatformInit(Napi::Env _env) {
   g_kqueue = kqueue();
   if (g_kqueue == -1) {
     g_init_errno = errno;

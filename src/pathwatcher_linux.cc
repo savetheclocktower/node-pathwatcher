@@ -13,7 +13,7 @@
 static int g_inotify;
 static int g_init_errno;
 
-void PlatformInit() {
+void PlatformInit(Napi::Env _env) {
   g_inotify = inotify_init();
   if (g_inotify == -1) {
     g_init_errno = errno;

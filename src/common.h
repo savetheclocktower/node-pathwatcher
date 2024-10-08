@@ -23,7 +23,7 @@ typedef int32_t WatcherHandle;
 #define IsV8ValueWatcherHandle(v) v.IsNumber()
 #endif
 
-void PlatformInit();
+void PlatformInit(Napi::Env env);
 WatcherHandle PlatformWatch(const char* path);
 void PlatformUnwatch(WatcherHandle handle);
 bool PlatformIsHandleValid(WatcherHandle handle);

@@ -8,7 +8,7 @@ namespace {
     env.SetInstanceData(data);
 
     CommonInit(env);
-    PlatformInit();
+    PlatformInit(env);
 
     exports.Set("setCallback", Napi::Function::New(env, SetCallback));
     exports.Set("watch", Napi::Function::New(env, Watch));
