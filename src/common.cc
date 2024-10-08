@@ -142,7 +142,7 @@ Napi::Value Unwatch(const Napi::CallbackInfo& info) {
   auto thing = info[0];
 
 #ifdef _WIN32
-  Napi::BigInt num = info[0];
+  Napi::Value num = info[0];
 #else
   Napi::Number num = info[0].ToNumber();
 #endif
