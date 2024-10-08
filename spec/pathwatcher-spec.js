@@ -161,8 +161,8 @@ describe('PathWatcher', () => {
     });
   });
 
-  describe('when watching a file that does not exist', () => {
-    if (process.platform !== 'win32') {
+  if (process.platform !== 'win32') {
+    describe('when watching a file that does not exist', () => {
       it('throws an error with a code #darwin #linux', () => {
         let doesNotExist = path.join(tempDir, 'does-not-exist');
         let watcher;
@@ -174,8 +174,8 @@ describe('PathWatcher', () => {
         }
         expect(watcher).toBe(undefined); // (ensure it threw)
       });
-    }
-  });
+    });
+  }
 
   describe('when watching multiple files under the same directory', () => {
     it('fires the callbacks when both of the files are modified', async () => {
