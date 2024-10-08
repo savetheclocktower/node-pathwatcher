@@ -114,7 +114,7 @@ class PathWatcher {
     this.path = filePath;
     this.emitter = new Emitter();
     if (process.platform === 'win32') {
-      stats = fs.statSync(filePath);
+      let stats = fs.statSync(filePath);
       this.isWatchingParent = !stats.isDirectory();
     }
     if (this.isWatchingParent) {
