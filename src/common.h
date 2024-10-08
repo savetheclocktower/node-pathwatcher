@@ -23,7 +23,7 @@ using namespace Napi;
 typedef HANDLE WatcherHandle;
 
 // Conversion between V8 value and WatcherHandle.
-Napi::Value WatcherHandleToV8Value(WatcherHandle handle);
+Napi::Value WatcherHandleToV8Value(WatcherHandle handle, Napi::Env env);
 WatcherHandle V8ValueToWatcherHandle(Napi::Value value);
 bool IsV8ValueWatcherHandle(Napi::Value value);
 #else
