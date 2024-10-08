@@ -241,11 +241,15 @@ void PlatformThread(
 
       locker.Unlock();
 
-      for (size_t i = 0; i < events.size(); ++i)
-        PostEventAndWait(events[i].type,
-                         events[i].handle,
-                         events[i].new_path,
-                         events[i].old_path);
+      for (size_t i = 0; i < events.size(); ++i) {
+        PathWatcherEvent event(
+          events[i].type,
+          events[i].handle,
+          events[i].new_path,
+          events[i].old_path
+        );
+        progress.Send(&event, 1);
+      }
     }
   }
 }
