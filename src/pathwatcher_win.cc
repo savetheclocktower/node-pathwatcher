@@ -6,6 +6,7 @@
 #include "common.h"
 #include "js_native_api_types.h"
 #include "napi.h"
+#include "uv.h"
 
 // Size of the buffer to store result of ReadDirectoryChangesW.
 static const unsigned int kDirectoryWatcherBufferSize = 4096;
@@ -99,11 +100,11 @@ static bool QueueReaddirchanges(HandleWrapper* handle) {
 }
 
 Napi::Value WatcherHandleToV8Value(WatcherHandle handle, Napi::Env env) {
-  uint64_t HandleInt = reinterpret_cast<uint64_t>(handle);
-  return Napi::BigInt::New(env,  handleInt);
+  uint64_t handleInt = reinterpret_cast<uint64_t>(handle);
+  return Napi::BigInt::New(env, handleInt);
 }
 
-WatcherHandle V8ValueToWatcherHandle(Local<Value> value) {
+WatcherHandle V8ValueToWatcherHandle(Napi::Value value) {
   if (!value.IsBigInt()) {
     return NULL;
   }
@@ -115,7 +116,7 @@ WatcherHandle V8ValueToWatcherHandle(Local<Value> value) {
   return reinterpret_cast<HANDLE>(handleInt);
 }
 
-bool IsV8ValueWatcherHandle(Local<Value> value) {
+bool IsV8ValueWatcherHandle(Napi::Value value) {
   return value->IsBigInt();
 }
 
