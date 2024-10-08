@@ -2,6 +2,8 @@
 #include "addon-data.h"
 #include "uv.h"
 
+#include <iostream>
+
 using namespace Napi;
 
 void CommonInit(Napi::Env env) {
