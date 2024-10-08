@@ -1,5 +1,10 @@
 
-const binding = require('../build/Release/pathwatcher.node');
+let binding;
+try {
+  binding = require('../build/Debug/pathwatcher.node');
+} catch (err) {
+  binding = require('../build/Release/pathwatcher.node');
+}
 const { Emitter } = require('event-kit');
 const fs = require('fs');
 const path = require('path');
