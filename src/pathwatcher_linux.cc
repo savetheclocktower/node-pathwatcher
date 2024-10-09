@@ -84,6 +84,7 @@ void PlatformThread(
 }
 
 WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
+  auto addonData = env.GetInstanceData<AddonData>();
   if (addonData->inotify == -1) {
     return -addonData->init_errno;
   }
