@@ -1,60 +1,105 @@
+#include <atomic>
 #include <algorithm>
+#include <condition_variable>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <iostream>
-
+#include <thread>
+#include <unordered_map>
 #include "common.h"
 #include "addon-data.h"
 #include "js_native_api_types.h"
 #include "napi.h"
 #include "uv.h"
 
-// class VectorMap {
-// public:
-//     using Vector = std::vector<HANDLE>;
-//
-//     std::shared_ptr<Vector> get_or_create(int addonDataId) {
-//         auto it = vectors_.find(addonDataId);
-//         if (it == vectors_.end()) {
-//             it = vectors_.emplace(addonDataId, std::make_shared<Vector>()).first;
-//         }
-//         return it->second;
-//     }
-//
-//     void remove(int addonDataId) {
-//         vectors_.erase(addonDataId);
-//     }
-//
-// private:
-//     std::map<int, std::shared_ptr<Vector>> vectors_;
-// };
-//
-// // Global instance of VectorMap
-// VectorMap g_vector_map;
-//
-// class ProgressMap {
-// public:
-//     using Progess = PathWatcherWorker::ExecutionProgress;
-//     void set(const Progress& progress) {
-//
-//     }
-//     std::shared_ptr<Vector> get_or_create(int addonDataId) {
-//         auto it = vectors_.find(addonDataId);
-//         if (it == vectors_.end()) {
-//             it = vectors_.emplace(addonDataId, std::make_shared<Vector>()).first;
-//         }
-//         return it->second;
-//     }
-//
-//     void remove(int addonDataId) {
-//         vectors_.erase(addonDataId);
-//     }
-//
-// private:
-//     std::map<int, std::shared_ptr<Vector>> vectors_;
-// };
+struct ThreadData {
+  std::queue<PathWatcherEvent> event_queue;
+  std::mutex mutex;
+  std::condition_variable cv;
+  PathWatcherWorker::ExecutionProgress progress;
+  bool should_stop = false;
+};
 
-static std::map<int, PathWatcherWorker::ExecutionProgress> g_progress_map;
+class ThreadManager {
+public:
+  void register_thread(int id, PathWatcherWorker::ExecutionProgress progress) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    threads_[id] = std::make_unique<ThreadData>();
+    threads_[id]->progress = std::move(progress);
+  }
+
+  void unregister_thread(int id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    threads_.erase(id);
+  }
+
+  void queue_event(int id, PathWatcherEvent event) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (threads_.count(id) > 0) {
+      std::lock_guard<std::mutex> thread_lock(threads_[id]->mutex);
+      threads_[id]->event_queue.push(std::move(event));
+      threads_[id]->cv.notify_one();
+    }
+  }
+
+  void stop_all() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& pair : threads_) {
+      std::lock_guard<std::mutex> thread_lock(pair.second->mutex);
+      pair.second->should_stop = true;
+      pair.second->cv.notify_one();
+    }
+  }
+
+  bool is_empty() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return threads_.empty();
+  }
+
+  bool has_thread(int id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return threads_.find(id) != threads_.end();
+  }
+
+  std::unordered_map<int, std::unique_ptr<ThreadData>> threads_;
+
+private:
+  mutable std::mutex mutex_;
+};
+
+// Global instance
+ThreadManager g_thread_manager;
+
+// Global atomic flag to ensure only one PlatformThread is running
+std::atomic<bool> g_platform_thread_running(false);
+
+void ThreadWorker(int id) {
+  while (true) {
+    std::unique_lock<std::mutex> lock(g_thread_manager.threads_[id]->mutex);
+    g_thread_manager.threads_[id]->cv.wait(lock, [id] {
+      return !(
+        g_thread_manager.threads_[id]->event_queue.empty() ||
+        g_thread_manager.threads_[id]->should_stop
+      );
+    });
+
+    if (
+      g_thread_manager.threads_[id]->should_stop &&
+      g_thread_manager.threads_[id]->event_queue.empty()
+    ) {
+      break;
+    }
+
+    while (!g_thread_manager.threads_[id]->event_queue.empty()) {
+      auto event = g_thread_manager.threads_[id]->event_queue.front();
+      g_thread_manager.threads_[id]->event_queue.pop();
+      lock.unlock();
+      g_thread_manager.threads_[id]->progress.Send(&event, 1);
+      lock.lock();
+    }
+  }
+}
 
 // Global instance of VectorMap
 // ProgressMap g_progress_map;
@@ -74,8 +119,8 @@ static HANDLE g_wake_up_event;
 // The dummy event to ensure we are not waiting on a file handle when destroying it.
 static HANDLE g_file_handles_free_event;
 
-static bool g_is_running = false;
-static int g_env_count = 0;
+// static bool g_is_running = false;
+// static int g_env_count = 0;
 
 struct ScopedLocker {
   explicit ScopedLocker(uv_mutex_t& mutex) : mutex_(&mutex) { uv_mutex_lock(mutex_); }
@@ -186,24 +231,26 @@ void PlatformThread(
   bool& shouldStop,
   Napi::Env env
 ) {
-  g_env_count++;
   auto addonData = env.GetInstanceData<AddonData>();
-  g_progress_map.emplace(addonData->id, progress);
-  if (g_is_running) return;
-  g_is_running = true;
+
+  bool expected = false;
+  if (!g_platform_thread_running.compare_exchange_strong(expected, true)) {
+    // Another PlatformThread is already running.
+    g_thread_manager.register_thread(addon_data->id, progress);
+    ThreadWorker(addon_data->id);
+    g_thread_manager.unregister_thread(addon_data->id);
+    return;
+  }
+
+  // This is the primary thread
+  g_thread_manager.register_thread(addon_data->id, progress);
+
+  // if (g_is_running) return;
+  // g_is_running = true;
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
   // std::cout << "PlatformThread" << std::endl;
-  while (true) {
-    if (shouldStop && g_env_count == 0) {
-      std::cout << "Thread with ID: " << addonData->id << " wants to stop and is the last worker. Stopping PlatformThread" << std::endl;
-      break;
-    } else if (shouldStop) {
-      std::cout << "Thread with ID: " << addonData->id << " wants to stop, but it is not the main worker." << std::endl;
-    } else if (g_env_count == 0) {
-      std::cout << "WARNING: g_env_count is 0!" << std::endl;
-      break;
-    }
+  while (!g_thread_manager.is_empty()) {
     // Do not use g_events directly, since reallocation could happen when there
     // are new watchers adding to g_events when WaitForMultipleObjects is still
     // polling.
@@ -242,18 +289,10 @@ void PlatformThread(
         continue;
       }
 
-      // if (handle->addonDataId != addonData->id) {
-      //   std::cout << "Thread with ID: " << addonData->id << " ignoring handle from different context." << std::endl;
-      //   continue;
-      // }
-
-      auto progressIterator = g_progress_map.find(handle->addonDataId);
-      if (progressIterator == g_progress_map.end()) {
-        std::cout << "Could not match up ID: " << addonData->id << " with a PathWatcherWorker." << std::endl;
+      if (!g_thread_manager.has_thread(handle->addonDataId)) {
+        std::cout << "Unrecognized environment: " << handle->addonDataId << std::endl;
         continue;
       }
-
-      PathWatcherWorker::ExecutionProgress& progressForEvent = progressIterator->second;
 
       DWORD bytes_transferred;
       if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE)) {
@@ -354,13 +393,15 @@ void PlatformThread(
           events[i].new_path,
           events[i].old_path
         );
-        progressForEvent.Send(&event, 1);
+        g_thread_manager.queue_event(handle->addonDataId, event);
       }
     }
   }
 
   std::cout << "PlatformThread with ID: " << addonData->id << " is exiting! " << std::endl;
-  g_is_running = false;
+  g_thread_manager.stop_all();
+  g_thread_manager.unregister_thread(addonData->id);
+  g_platform_thread_running = false;
 }
 
 // // Function to get the vector for a given AddonData
@@ -440,5 +481,5 @@ int PlatformInvalidHandleToErrorNumber(WatcherHandle handle) {
 
 void PlatformStop(Napi::Env env) {
   auto addonData = env.GetInstanceData<AddonData>();
-  g_env_count--;
+  g_thread_manager.unregister_thread(addon_data->id);
 }
