@@ -82,21 +82,18 @@ struct WatcherEvent {
 };
 
 static bool QueueReaddirchanges(HandleWrapper* handle) {
-  return ReadDirectoryChangesW(handle->dir_handle,
-                               handle->buffer,
-                               kDirectoryWatcherBufferSize,
-                               FALSE,
-                               FILE_NOTIFY_CHANGE_FILE_NAME      |
-                                 FILE_NOTIFY_CHANGE_DIR_NAME     |
-                                 FILE_NOTIFY_CHANGE_ATTRIBUTES   |
-                                 FILE_NOTIFY_CHANGE_SIZE         |
-                                 FILE_NOTIFY_CHANGE_LAST_WRITE   |
-                                 FILE_NOTIFY_CHANGE_LAST_ACCESS  |
-                                 FILE_NOTIFY_CHANGE_CREATION     |
-                                 FILE_NOTIFY_CHANGE_SECURITY,
-                               NULL,
-                               &handle->overlapped,
-                               NULL) == TRUE;
+  return ReadDirectoryChangesW(
+    handle->dir_handle,
+    handle->buffer,
+    kDirectoryWatcherBufferSize,
+    FALSE,
+    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_ATTRIBUTES |
+     FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_LAST_ACCESS |
+     FILE_NOTIFY_CHANGE_CREATION | FILE_NOTIFY_CHANGE_SECURITY,
+    NULL,
+    &handle->overlapped,
+    NULL
+  ) == TRUE;
 }
 
 Napi::Value WatcherHandleToV8Value(WatcherHandle handle, Napi::Env env) {
@@ -131,8 +128,11 @@ void PlatformInit(Napi::Env _env) {
 void PlatformThread(
   const PathWatcherWorker::ExecutionProgress& progress,
   bool& shouldStop,
-  Napi::Env _env
+  Napi::Env env
 ) {
+  auto addonData = env.GetInstanceData<AddonData>();
+  std::cout "PlatformThread ID: " << addonData->id << std::endl;
+
   // std::cout << "PlatformThread" << std::endl;
   while (!shouldStop) {
     // Do not use g_events directly, since reallocation could happen when there
@@ -143,10 +143,12 @@ void PlatformThread(
     locker.Unlock();
 
     ResetEvent(g_file_handles_free_event);
-    DWORD r = WaitForMultipleObjects(copied_events.size(),
-                                     copied_events.data(),
-                                     FALSE,
-                                     100);
+    DWORD r = WaitForMultipleObjects(
+      copied_events.size(),
+      copied_events.data(),
+      FALSE,
+      100
+    );
     SetEvent(g_file_handles_free_event);
 
     if (r == WAIT_TIMEOUT) {
@@ -207,14 +209,16 @@ void PlatformThread(
               file_info->FileNameLength / sizeof(wchar_t);
 
           char filename[MAX_PATH] = { 0 };
-          int size = WideCharToMultiByte(CP_UTF8,
-                                         0,
-                                         file_info->FileName,
-                                         file_name_length_in_characters,
-                                         filename,
-                                         MAX_PATH,
-                                         NULL,
-                                         NULL);
+          int size = WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            file_info->FileName,
+            file_name_length_in_characters,
+            filename,
+            MAX_PATH,
+            NULL,
+            NULL
+          );
 
           // Convert file name to file path, same with:
           // path = handle->path + '\\' + filename
@@ -249,6 +253,8 @@ void PlatformThread(
 
       locker.Unlock();
 
+      std::cout "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
+
       for (size_t i = 0; i < events.size(); ++i) {
         PathWatcherEvent event(
           events[i].type,
@@ -263,7 +269,8 @@ void PlatformThread(
 }
 
 WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
-  // std::cout << "PlatformWatch" << std::endl;
+  auto addonData = env.GetInstanceData<AddonData>();
+  std::cout << "PlatformWatch ID: " << addonData->id << " Path: " << path << std::endl;
   wchar_t wpath[MAX_PATH] = { 0 };
   MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, MAX_PATH);
 
@@ -273,15 +280,16 @@ WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
     return INVALID_HANDLE_VALUE;
   }
 
-  WatcherHandle dir_handle = CreateFileW(wpath,
-                                         FILE_LIST_DIRECTORY,
-                                         FILE_SHARE_READ | FILE_SHARE_DELETE |
-                                           FILE_SHARE_WRITE,
-                                         NULL,
-                                         OPEN_EXISTING,
-                                         FILE_FLAG_BACKUP_SEMANTICS |
-                                           FILE_FLAG_OVERLAPPED,
-                                         NULL);
+  WatcherHandle dir_handle = CreateFileW(
+    wpath,
+    FILE_LIST_DIRECTORY,
+    FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE,
+    NULL,
+    OPEN_EXISTING,
+    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+    NULL
+  );
+
   if (!PlatformIsHandleValid(dir_handle)) {
     return INVALID_HANDLE_VALUE;
   }
@@ -304,7 +312,8 @@ WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
 }
 
 void PlatformUnwatch(WatcherHandle key, Napi::Env env) {
-  // std::cout << "PlatformUnwatch" << std::endl;
+  auto addonData = env.GetInstanceData<AddonData>();
+  std::cout << "PlatformUnwatch ID: " << addonData->id << std::endl;
   if (PlatformIsHandleValid(key)) {
     HandleWrapper* handle;
     {
