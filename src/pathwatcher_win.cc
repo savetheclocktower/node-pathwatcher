@@ -236,11 +236,13 @@ void PlatformThread(
       //   continue;
       // }
 
-      PathWatcherWorker::ExecutionProgress progressForEvent = g_progress_map.find(handle->addonDataId);
-      if (!progressForEvent) {
+      auto progressIterator = g_progress_map.find(handle->addonDataId);
+      if (!progressIterator == g_progress_map.end()) {
         std::cout << "Could not match up ID: " << addonData->id << " with a PathWatcherWorker." << std::endl;
         continue;
       }
+
+      PathWatcherWorker::ExecutionProgress& progressForEvent = progressIterator->second;
 
       DWORD bytes_transferred;
       if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE)) {
