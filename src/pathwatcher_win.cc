@@ -31,6 +31,33 @@
 //
 // // Global instance of VectorMap
 // VectorMap g_vector_map;
+//
+// class ProgressMap {
+// public:
+//     using Progess = PathWatcherWorker::ExecutionProgress;
+//     void set(const Progress& progress) {
+//
+//     }
+//     std::shared_ptr<Vector> get_or_create(int addonDataId) {
+//         auto it = vectors_.find(addonDataId);
+//         if (it == vectors_.end()) {
+//             it = vectors_.emplace(addonDataId, std::make_shared<Vector>()).first;
+//         }
+//         return it->second;
+//     }
+//
+//     void remove(int addonDataId) {
+//         vectors_.erase(addonDataId);
+//     }
+//
+// private:
+//     std::map<int, std::shared_ptr<Vector>> vectors_;
+// };
+
+static std::map<int, PathWatcherWorker::ExecutionProgress> g_progress_map;
+
+// Global instance of VectorMap
+// ProgressMap g_progress_map;
 
 // Size of the buffer to store result of ReadDirectoryChangesW.
 static const unsigned int kDirectoryWatcherBufferSize = 4096;
@@ -158,9 +185,10 @@ void PlatformThread(
   bool& shouldStop,
   Napi::Env env
 ) {
+  auto addonData = env.GetInstanceData<AddonData>();
+  g_progress_map.insert(addonData->id, progress);
   if (g_is_running) return;
   g_is_running = true;
-  auto addonData = env.GetInstanceData<AddonData>();
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
   // std::cout << "PlatformThread" << std::endl;
@@ -207,6 +235,12 @@ void PlatformThread(
       //   std::cout << "Thread with ID: " << addonData->id << " ignoring handle from different context." << std::endl;
       //   continue;
       // }
+
+      PathWatcherWorker::ExecutionProgress progressForEvent = g_progress_map.find(handle->addonDataId);
+      if (!progressForEvent) {
+        std::cout << "Could not match up ID: " << addonData->id << " with a PathWatcherWorker." << std::endl;
+        continue;
+      }
 
       DWORD bytes_transferred;
       if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE)) {
@@ -307,7 +341,7 @@ void PlatformThread(
           events[i].new_path,
           events[i].old_path
         );
-        progress.Send(&event, 1);
+        progressForEvent.Send(&event, 1);
       }
     }
   }
