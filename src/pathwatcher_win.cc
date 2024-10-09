@@ -130,7 +130,8 @@ void PlatformInit(Napi::Env _env) {
 
 void PlatformThread(
   const PathWatcherWorker::ExecutionProgress& progress,
-  bool& shouldStop
+  bool& shouldStop,
+  Napi::Env _env
 ) {
   // std::cout << "PlatformThread" << std::endl;
   while (!shouldStop) {
