@@ -75,6 +75,7 @@ void Start(Napi::Env env) {
 // Called when the last watcher is stopped.
 void Stop(Napi::Env env) {
   // std::cout << "Stop" << std::endl;
+  PlatformStop(env);
   auto addonData = env.GetInstanceData<AddonData>();
   if (addonData->worker) {
     addonData->worker->Stop();

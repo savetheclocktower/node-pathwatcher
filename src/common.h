@@ -121,6 +121,7 @@ class PathWatcherWorker: public AsyncProgressQueueWorker<PathWatcherEvent> {
 };
 
 void PlatformThread(const PathWatcherWorker::ExecutionProgress& progress, bool& shouldStop, Napi::Env env);
+void PlatformStop(Napi::Env env);
 
 void CommonInit(Napi::Env env);
 

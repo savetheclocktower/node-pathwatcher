@@ -124,3 +124,5 @@ bool PlatformIsHandleValid(WatcherHandle handle) {
 int PlatformInvalidHandleToErrorNumber(WatcherHandle handle) {
   return -handle;
 }
+
+void PlatformStop(Napi::Env env) {}

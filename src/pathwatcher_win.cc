@@ -75,6 +75,7 @@ static HANDLE g_wake_up_event;
 static HANDLE g_file_handles_free_event;
 
 static bool g_is_running = false;
+static bool g_env_count = 0;
 
 struct ScopedLocker {
   explicit ScopedLocker(uv_mutex_t& mutex) : mutex_(&mutex) { uv_mutex_lock(mutex_); }
@@ -185,6 +186,7 @@ void PlatformThread(
   bool& shouldStop,
   Napi::Env env
 ) {
+  g_env_count++;
   auto addonData = env.GetInstanceData<AddonData>();
   g_progress_map.emplace(addonData->id, progress);
   if (g_is_running) return;
@@ -192,7 +194,10 @@ void PlatformThread(
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
   // std::cout << "PlatformThread" << std::endl;
-  while (!shouldStop) {
+  while (true) {
+    if (shouldStop && g_env_count == 0) {
+      return;
+    }
     // Do not use g_events directly, since reallocation could happen when there
     // are new watchers adding to g_events when WaitForMultipleObjects is still
     // polling.
@@ -237,7 +242,7 @@ void PlatformThread(
       // }
 
       auto progressIterator = g_progress_map.find(handle->addonDataId);
-      if (!progressIterator == g_progress_map.end()) {
+      if (progressIterator == g_progress_map.end()) {
         std::cout << "Could not match up ID: " << addonData->id << " with a PathWatcherWorker." << std::endl;
         continue;
       }
@@ -424,4 +429,9 @@ bool PlatformIsHandleValid(WatcherHandle handle) {
 // We have no errno on Windows.
 int PlatformInvalidHandleToErrorNumber(WatcherHandle handle) {
   return 0;
+}
+
+void PlatformStop(Napi::Env env) {
+  auto addonData = env.GetInstanceData<AddonData>();
+  g_env_count--;
 }
