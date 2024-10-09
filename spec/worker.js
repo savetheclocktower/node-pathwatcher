@@ -15,7 +15,8 @@ const wait = util.promisify(setTimeout);
 const EXPECTED_CALL_COUNT = 3;
 
 if (isMainThread) {
-  module.exports = function spawnThread(id) {
+  module.exports = function spawnThread(index) {
+    let id = index + 1;
     return new Promise(async (resolve, reject) => {
       console.log('Spawning worker:', id);
       const worker = new Worker(__filename, {

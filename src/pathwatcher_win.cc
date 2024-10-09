@@ -257,6 +257,7 @@ void PlatformThread(
       std::cout << "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
 
       for (size_t i = 0; i < events.size(); ++i) {
+        std::cout << "Emitting " << events[i].type << " event on thread " << addonData->id << " for path: " << events[i].new_path.data() << std::endl;
         PathWatcherEvent event(
           events[i].type,
           events[i].handle,
