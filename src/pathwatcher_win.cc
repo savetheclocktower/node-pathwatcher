@@ -196,7 +196,13 @@ void PlatformThread(
   // std::cout << "PlatformThread" << std::endl;
   while (true) {
     if (shouldStop && g_env_count == 0) {
-      return;
+      std::cout << "Thread with ID: " << addonData->id << " wants to stop and is the last worker. Stopping PlatformThread" << std::endl;
+      break;
+    } else if (shouldStop) {
+      std::cout << "Thread with ID: " << addonData->id << " wants to stop, but it is not the main worker." << std::endl;
+    } else if (g_env_count == 0) {
+      std::cout << "WARNING: g_env_count is 0!" << std::endl;
+      break;
     }
     // Do not use g_events directly, since reallocation could happen when there
     // are new watchers adding to g_events when WaitForMultipleObjects is still
