@@ -341,7 +341,7 @@ void PlatformThread(
       std::cout << "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
 
       for (size_t i = 0; i < events.size(); ++i) {
-        std::cout << "Emitting " << events[i].type << " event on thread " << addonData->id << " for path: " << events[i].new_path.data() << std::endl;
+        std::cout << "Emitting " << events[i].type << " event(s) on thread " << addonData->id << " for path: " << events[i].new_path.data() << " for worker with ID: " << handle->addonDataId << std::endl;
         PathWatcherEvent event(
           events[i].type,
           events[i].handle,
@@ -353,6 +353,7 @@ void PlatformThread(
     }
   }
 
+  std::cout << "PlatformThread with ID: " << addonData->id << " is exiting! " << std::endl;
   g_is_running = false;
 }
 
