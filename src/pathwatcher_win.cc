@@ -186,7 +186,7 @@ void PlatformThread(
   Napi::Env env
 ) {
   auto addonData = env.GetInstanceData<AddonData>();
-  g_progress_map.insert(addonData->id, progress);
+  g_progress_map.emplace(addonData->id, progress);
   if (g_is_running) return;
   g_is_running = true;
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
