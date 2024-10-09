@@ -132,7 +132,7 @@ void PlatformThread(
   Napi::Env env
 ) {
   auto addonData = env.GetInstanceData<AddonData>();
-  std::cout "PlatformThread ID: " << addonData->id << std::endl;
+  std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
   // std::cout << "PlatformThread" << std::endl;
   while (!shouldStop) {
@@ -254,7 +254,7 @@ void PlatformThread(
 
       locker.Unlock();
 
-      std::cout "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
+      std::cout << "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
 
       for (size_t i = 0; i < events.size(); ++i) {
         PathWatcherEvent event(
