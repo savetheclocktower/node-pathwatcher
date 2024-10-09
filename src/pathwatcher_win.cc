@@ -75,7 +75,7 @@ static HANDLE g_wake_up_event;
 static HANDLE g_file_handles_free_event;
 
 static bool g_is_running = false;
-static bool g_env_count = 0;
+static int g_env_count = 0;
 
 struct ScopedLocker {
   explicit ScopedLocker(uv_mutex_t& mutex) : mutex_(&mutex) { uv_mutex_lock(mutex_); }
