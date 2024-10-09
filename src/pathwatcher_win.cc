@@ -9,6 +9,29 @@
 #include "napi.h"
 #include "uv.h"
 
+// class VectorMap {
+// public:
+//     using Vector = std::vector<HANDLE>;
+//
+//     std::shared_ptr<Vector> get_or_create(int addonDataId) {
+//         auto it = vectors_.find(addonDataId);
+//         if (it == vectors_.end()) {
+//             it = vectors_.emplace(addonDataId, std::make_shared<Vector>()).first;
+//         }
+//         return it->second;
+//     }
+//
+//     void remove(int addonDataId) {
+//         vectors_.erase(addonDataId);
+//     }
+//
+// private:
+//     std::map<int, std::shared_ptr<Vector>> vectors_;
+// };
+//
+// // Global instance of VectorMap
+// VectorMap g_vector_map;
+
 // Size of the buffer to store result of ReadDirectoryChangesW.
 static const unsigned int kDirectoryWatcherBufferSize = 4096;
 
@@ -34,8 +57,9 @@ struct ScopedLocker {
 };
 
 struct HandleWrapper {
-  HandleWrapper(WatcherHandle handle, const char* path_str)
-      : dir_handle(handle),
+  HandleWrapper(WatcherHandle handle, const char* path_str, int addon_data_id)
+      : addonDataId(addon_data_id),
+        dir_handle(handle),
         path(strlen(path_str)),
         canceled(false) {
     memset(&overlapped, 0, sizeof(overlapped));
@@ -62,6 +86,7 @@ struct HandleWrapper {
     map_.erase(overlapped.hEvent);
   }
 
+  int addonDataId;
   WatcherHandle dir_handle;
   std::vector<char> path;
   bool canceled;
@@ -144,6 +169,7 @@ void PlatformThread(
     locker.Unlock();
 
     ResetEvent(g_file_handles_free_event);
+    std::cout << "Thread with ID: " << addonData->id << " is waiting..." << std::endl;
     DWORD r = WaitForMultipleObjects(
       copied_events.size(),
       copied_events.data(),
@@ -156,24 +182,37 @@ void PlatformThread(
       // Timeout occurred, check shouldStop flag
       continue;
     }
+    std::cout << "Thread with ID: " << addonData->id << " is done waiting." << std::endl;
 
     int i = r - WAIT_OBJECT_0;
     if (i >= 0 && i < copied_events.size()) {
       // It's a wake up event, there is no fs events.
-      if (copied_events[i] == g_wake_up_event)
+      if (copied_events[i] == g_wake_up_event) {
+        std::cout << "Thread with ID: " << addonData->id << " received wake-up event. Continuing." << std::endl;
         continue;
+      }
 
       ScopedLocker locker(g_handle_wrap_map_mutex);
 
       HandleWrapper* handle = HandleWrapper::Get(copied_events[i]);
-      if (!handle || handle->canceled)
+      if (!handle || handle->canceled) {
         continue;
+      }
+
+      if (handle->addonDataId != addonData->id) {
+        std::cout << "Thread with ID: " << addonData->id << " ignoring handle from different context." << std::endl;
+        continue;
+      }
 
       DWORD bytes_transferred;
-      if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE))
+      if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE)) {
+        std::cout << "Nothing for thread: " << addonData->id << std::endl;
         continue;
-      if (bytes_transferred == 0)
+      }
+      if (bytes_transferred == 0) {
+        std::cout << "Nothing for thread: " << addonData->id << std::endl;
         continue;
+      }
 
       std::vector<char> old_path;
       std::vector<WatcherEvent> events;
@@ -270,6 +309,11 @@ void PlatformThread(
   }
 }
 
+// // Function to get the vector for a given AddonData
+// std::shared_ptr<VectorMap::Vector> GetVectorForAddonData(AddonData* addonData) {
+//   return g_vector_map.get_or_create(addonData->id);
+// }
+
 WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
   auto addonData = env.GetInstanceData<AddonData>();
   std::cout << "PlatformWatch ID: " << addonData->id << " Path: " << path << std::endl;
@@ -299,7 +343,7 @@ WatcherHandle PlatformWatch(const char* path, Napi::Env env) {
   std::unique_ptr<HandleWrapper> handle;
   {
     ScopedLocker locker(g_handle_wrap_map_mutex);
-    handle.reset(new HandleWrapper(dir_handle, path));
+    handle.reset(new HandleWrapper(dir_handle, path, addonData->id));
   }
 
   if (!QueueReaddirchanges(handle.get())) {
