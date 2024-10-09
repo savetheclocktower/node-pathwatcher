@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "common.h"
+#include "addon-data.h"
 #include "js_native_api_types.h"
 #include "napi.h"
 #include "uv.h"
