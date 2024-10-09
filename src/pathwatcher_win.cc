@@ -47,6 +47,8 @@ static HANDLE g_wake_up_event;
 // The dummy event to ensure we are not waiting on a file handle when destroying it.
 static HANDLE g_file_handles_free_event;
 
+static bool g_is_running = false;
+
 struct ScopedLocker {
   explicit ScopedLocker(uv_mutex_t& mutex) : mutex_(&mutex) { uv_mutex_lock(mutex_); }
   ~ScopedLocker() { Unlock(); }
@@ -156,6 +158,8 @@ void PlatformThread(
   bool& shouldStop,
   Napi::Env env
 ) {
+  if (g_is_running) return;
+  g_is_running = true;
   auto addonData = env.GetInstanceData<AddonData>();
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
@@ -199,10 +203,10 @@ void PlatformThread(
         continue;
       }
 
-      if (handle->addonDataId != addonData->id) {
-        std::cout << "Thread with ID: " << addonData->id << " ignoring handle from different context." << std::endl;
-        continue;
-      }
+      // if (handle->addonDataId != addonData->id) {
+      //   std::cout << "Thread with ID: " << addonData->id << " ignoring handle from different context." << std::endl;
+      //   continue;
+      // }
 
       DWORD bytes_transferred;
       if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE)) {
@@ -307,6 +311,8 @@ void PlatformThread(
       }
     }
   }
+
+  g_is_running = false;
 }
 
 // // Function to get the vector for a given AddonData
