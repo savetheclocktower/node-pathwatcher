@@ -13,7 +13,9 @@ describe('PathWatcher', () => {
   let tempFile = path.join(tempDir, 'file');
 
   beforeEach(() => fs.writeFileSync(tempFile, ''));
-  afterEach(() => PathWatcher.closeAllWatchers());
+  afterEach(async () => {
+    await PathWatcher.closeAllWatchers();
+  });
 
   describe('getWatchedPaths', () => {
     it('returns an array of all watched paths', () => {

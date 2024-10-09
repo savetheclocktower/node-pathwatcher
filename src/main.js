@@ -12,6 +12,10 @@ const path = require('path');
 const HANDLE_WATCHERS = new Map();
 let initialized = false;
 
+function wait (ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 class HandleWatcher {
 
   constructor(path) {
@@ -99,10 +103,12 @@ class HandleWatcher {
     }
   }
 
-  close () {
+  async close () {
     if (!HANDLE_WATCHERS.has(this.handle)) return;
     binding.unwatch(this.handle);
     HANDLE_WATCHERS.delete(this.handle);
+    // Watchers take 100ms to realize they're closed.
+    await wait(100);
   }
 }
 
@@ -200,11 +206,13 @@ function watch (pathToWatch, callback) {
   return new PathWatcher(path.resolve(pathToWatch), callback);
 }
 
-function closeAllWatchers () {
+async function closeAllWatchers () {
+  let promises = [];
   for (let watcher of HANDLE_WATCHERS.values()) {
-    watcher?.close();
+    promises.push(watcher?.close());
   }
   HANDLE_WATCHERS.clear();
+  await Promise.allSettled(promises);
 }
 
 function getWatchedPaths () {
