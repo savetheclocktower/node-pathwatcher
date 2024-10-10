@@ -215,7 +215,7 @@ describe('Directory', () => {
     });
 
     it('no longer triggers events', async () => {
-      console.log('ABOUT TO WATCH FAILING FILE TEST');
+      console.log('\nABOUT TO WATCH FAILING FILE TEST');
       console.log('================================');
 
       let changeHandler = jasmine.createSpy('changeHandler', () => {
@@ -223,11 +223,14 @@ describe('Directory', () => {
       });
       let subscription = directory.onDidChange(changeHandler);
 
+      console.log('\nWAITING');
+      console.log('=======');
+      await wait(1000);
+
       fs.writeFileSync(temporaryFilePath, '');
 
-      console.log('ABOUT TO WATCH FAILING FILE TEST');
-      console.log('================================');
-
+      console.log('\nWROTE FILE');
+      console.log('==========');
       await condition(() => changeHandler.calls.count() > 0);
 
       changeHandler.calls.reset();
