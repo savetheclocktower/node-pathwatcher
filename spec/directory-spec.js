@@ -215,10 +215,18 @@ describe('Directory', () => {
     });
 
     it('no longer triggers events', async () => {
-      let changeHandler = jasmine.createSpy('changeHandler');
+      console.log('ABOUT TO WATCH FAILING FILE TEST');
+      console.log('================================');
+
+      let changeHandler = jasmine.createSpy('changeHandler', () => {
+        console.log('[[[CHANGE HANDLER!]]]');
+      });
       let subscription = directory.onDidChange(changeHandler);
 
       fs.writeFileSync(temporaryFilePath, '');
+
+      console.log('ABOUT TO WATCH FAILING FILE TEST');
+      console.log('================================');
 
       await condition(() => changeHandler.calls.count() > 0);
 
@@ -226,7 +234,6 @@ describe('Directory', () => {
       subscription.dispose();
 
       await wait(20);
-
       fs.removeSync(temporaryFilePath);
       await wait(20);
       expect(changeHandler.calls.count()).toBe(0);
