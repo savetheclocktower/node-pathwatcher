@@ -1,5 +1,6 @@
 #include <atomic>
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <map>
 #include <memory>
@@ -21,6 +22,7 @@ struct ThreadData {
   const PathWatcherWorker::ExecutionProgress* progress;
   bool should_stop = false;
   bool is_main = false;
+  bool is_working = false;
 };
 
 class ThreadManager {
@@ -39,18 +41,50 @@ public:
     }
   }
 
-  bool unregister_thread(int id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (id == this->main_id) {
-      this->main_id = -1;
-      for (const auto& pair : threads_) {
-        if (pair.first != id) {
-          std::cout << "Unregistering the main thread. Promoting " << pair.first << " to be the new boss thread." << std::endl;
-          promote(pair.first);
-          break;
+  bool clock_out(int id) {
+    std::cout << "omg clocking out sanity check " << id << std::endl;
+    if (id != this->main_id) {
+      std::cout << "Doesn't think it's the boss thread! " << id << std::endl;
+      return false;
+    }
+    // std::lock_guard<std::mutex> lock(mutex_);
+    auto current_boss_data = this->get_thread_data(this->main_id);
+    // Pretend this is still the main thread until we can hand off duties to
+    // another thread.
+    current_boss_data->is_main = true;
+    current_boss_data->is_working = false;
+
+    std::cout << "Finding a new boss thread." << std::endl;
+
+    for (const auto& pair : threads_) {
+      if (pair.first != id) {
+        std::cout << "Promoting " << pair.first << " to be the new boss thread." << std::endl;
+        promote(pair.first);
+        if (this->main_id != pair.first) {
+          std::cout << "WHY AM I GOING INSANE?" << std::endl;
         }
+        auto new_boss_data = this->get_thread_data(pair.first);
+        new_boss_data->is_main = true;
+        return true;
       }
     }
+    return false;
+  }
+
+  bool clock_in(int id) {
+    std::cout << "@@@@ clock_in called: Thread " << id << std::endl;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (id != this->main_id) return false;
+    std::cout << "@@@@ CLOCKING IN: Thread " << id << std::endl;
+
+    auto boss_data = unsafe_get_thread_data(id);
+    boss_data->is_working = true;
+    boss_data->cv.notify_one();
+    return true;
+  }
+
+  bool unregister_thread(int id) {
+    std::lock_guard<std::mutex> lock(mutex_);
     return threads_.erase(id) > 0;
   }
 
@@ -60,6 +94,13 @@ public:
 
   bool is_main (int id) {
     return id == this->main_id;
+  }
+
+  void wake_up_new_main() {
+    if (this->main_id == -1) return;
+    std::cout << "Attempting to wake up new main thread: " << this->main_id << std::endl;
+    auto new_boss_data = this->get_thread_data(this->main_id);
+    new_boss_data->cv.notify_one();
   }
 
   void promote(int id) {
@@ -91,6 +132,11 @@ public:
     return threads_.empty();
   }
 
+  int size() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return threads_.size();
+  }
+
   bool has_thread(int id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return threads_.find(id) != threads_.end();
@@ -102,9 +148,21 @@ public:
     return it != threads_.end() ? it->second.get() : nullptr;
   }
 
+  ThreadData* get_main_data() {
+    if (this->main_id == -1) return nullptr;
+    return this->get_thread_data(this->main_id);
+  }
+
   std::unordered_map<int, std::unique_ptr<ThreadData>> threads_;
 
 private:
+
+  ThreadData* unsafe_get_thread_data(int id) {
+    auto it = threads_.find(id);
+    return it != threads_.end() ? it->second.get() : nullptr;
+  }
+
+
   mutable std::mutex mutex_;
   int main_id = -1;
 };
@@ -291,9 +349,11 @@ void PlatformThread(
 
   ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
 
+  std::cout << "Is " << addonData->id << " the boss thread? " << g_thread_manager.is_main(addonData->id) << std::endl;
+
   if (!g_thread_manager.is_main(addonData->id)) {
     while (!g_thread_manager.is_main(addonData->id)) {
-      std::cout << "Thread with ID: " << addonData->id << " in holding pattern" << std::endl;
+      std::cout << "[WAIT WAIT " << addonData->id << "] Thread with ID: " << addonData->id << " in holding pattern" << std::endl;
       // A holding-pattern loop for threads that aren't the “boss” thread.
       ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
       if (!thread_data) break; // (thread was unregistered)
@@ -303,8 +363,11 @@ void PlatformThread(
       thread_data->cv.wait(lock, [thread_data] {
         if (thread_data->should_stop) return true;
         if (!thread_data->event_queue.empty()) return true;
+        if (thread_data->is_main) return true;
         return false;
       });
+
+      std::cout << "PEON Thread with ID: " << addonData->id << " unblocked because: (should_stop? " << thread_data->should_stop << ") (is_main? " << thread_data->is_main << ") (event queue? " << !thread_data->event_queue.empty() << ")" << std::endl;
 
       if (thread_data->should_stop && thread_data->event_queue.empty()) {
         break;
@@ -320,17 +383,24 @@ void PlatformThread(
         if (thread_data->should_stop) break;
       }
 
+      if (thread_data->is_main) {
+        std::cout << "THIS IS WHERE WE WOULD HAVE THE NEW GUY CLOCK IN! " << addonData->id << std::endl;
+        g_thread_manager.clock_in(addonData->id);
+        break;
+      }
+
       if (thread_data->should_stop) break;
     }
   }
 
-  if (!g_thread_manager.is_main(addonData->id)) {
-    // If we get to this point and this still isn't the “boss” thread, then
-    // we’ve broken out of the above loop but should not proceed. This thread
-    // hasn't been promoted; it should stop.
-    g_thread_manager.unregister_thread(addonData->id);
-    return;
-  }
+  // if (!g_thread_manager.is_main(addonData->id)) {
+  //   // If we get to this point and this still isn't the “boss” thread, then
+  //   // we’ve broken out of the above loop but should not proceed. This thread
+  //   // hasn't been promoted; it should stop.
+  //   std::cout << "Thread with ID: " << addonData->id << " is not the new boss thread, so it must be exiting."
+  //   g_thread_manager.unregister_thread(addonData->id);
+  //   return;
+  // }
 
   // If we get this far, then this is the main thread — either because it was
   // the first to be created or because it's been promoted after another thread
@@ -358,6 +428,12 @@ void PlatformThread(
       );
       SetEvent(g_file_handles_free_event);
 
+      std::cout << "BOSS Thread with ID: " << addonData->id << " unblocked because: (should_stop? " << thread_data->should_stop << ") (shouldStop? " << shouldStop << ") (is_main? " << thread_data->is_main << ") (event queue? " << (copied_events.size() > 1) << ") [THREAD SIZE: " << g_thread_manager.size() << "]" << std::endl;
+
+      if (!thread_data->is_main) {
+        break;
+      }
+
       if (r == WAIT_TIMEOUT) {
         continue;
       }
@@ -368,6 +444,7 @@ void PlatformThread(
         // It's a wake up event; there is no FS event.
         if (copied_events[i] == g_wake_up_event) {
           std::cout << "Thread with ID: " << addonData->id << " received wake-up event. Continuing." << std::endl;
+          if (!thread_data->is_main) break;
           continue;
         }
 
@@ -498,9 +575,21 @@ void PlatformThread(
     } // while
   }
 
-  std::cout << "PlatformThread with ID: " << addonData->id << " is exiting! " << std::endl;
-  // g_thread_manager.stop_all();
+
+  std::cout << "ABOUT TO UNREGISTER!!!!!!" << addonData->id << std::endl;
   g_thread_manager.unregister_thread(addonData->id);
+  std::cout << "PlatformThread with ID: " << addonData->id << " is exiting! Thread size: " << g_thread_manager.size() << std::endl;
+
+  if (!g_thread_manager.is_empty()) {
+    std::cout << "[???] Waking up new main!" << std::endl;
+    // g_thread_manager.wake_up_new_main();
+    // Sleep briefly to allow time for another thread to wake up.
+    std::cout << "[???] Sleeping!" << std::endl;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::cout << "[???] Done sleeping!" << std::endl;
+  }
+
   // g_platform_thread_running = false;
 }
 
@@ -581,11 +670,51 @@ int PlatformInvalidHandleToErrorNumber(WatcherHandle handle) {
 
 void PlatformStop(Napi::Env env) {
   auto addonData = env.GetInstanceData<AddonData>();
+  std::cout << "@@@@ PlatformStop ID: " << addonData->id << std::endl;
   auto thread_data = g_thread_manager.get_thread_data(addonData->id);
+
+  // if (g_thread_manager.is_main(addonData->id)) {
+  //   std::cout << "CLOCKING OUT!!!!!!" << addonData->id << std::endl;
+  //   // Warm hand-off.
+  //   g_thread_manager.clock_out(addonData->id);
+  //
+  //   if (g_thread_manager.size() > 1) {
+  //     auto new_main_thread_data = g_thread_manager.get_main_data();
+  //     g_thread_manager.wake_up_new_main();
+  //     std::unique_lock<std::mutex> lock(new_main_thread_data->mutex);
+  //     // Wait until the new boss clocks in.
+  //     new_main_thread_data->cv.wait(lock, [new_main_thread_data] {
+  //       return new_main_thread_data->is_working;
+  //     });
+  //   }
+  // }
+
   if (thread_data) {
+    if (thread_data->is_main) {
+      std::cout << "CLOCKING OUT!!!!!!" << addonData->id << " thread size: " << g_thread_manager.size() << std::endl;
+      g_thread_manager.clock_out(addonData->id);
+
+      if (g_thread_manager.size() > 1) {
+        std::cout << "WAITING FOR NEW BOSS!!!!!!" << addonData->id << std::endl;
+        auto new_main_thread_data = g_thread_manager.get_main_data();
+        g_thread_manager.wake_up_new_main();
+        std::unique_lock<std::mutex> lock(new_main_thread_data->mutex);
+        // Wait until the new boss clocks in.
+        new_main_thread_data->cv.wait(lock, [new_main_thread_data] {
+          return new_main_thread_data->is_working;
+        });
+        std::cout << "PROCEEDING!!!!!!" << addonData->id << std::endl;
+      } else {
+        std::cout << "WAS LAST THREAD!!!!!!" << addonData->id << std::endl;
+      }
+    } else {
+      std::cout << "NO THREAD DATA!!!!!!" << addonData->id << std::endl;
+    }
+
+
     std::lock_guard<std::mutex> lock(thread_data->mutex);
     thread_data->should_stop = true;
     thread_data->cv.notify_one();
-    g_thread_manager.unregister_thread(addonData->id);
+    // g_thread_manager.unregister_thread(addonData->id);
   }
 }

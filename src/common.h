@@ -98,8 +98,6 @@ struct PathWatcherEvent {
 
 using namespace Napi;
 
-inline Function EMPTY_OK = *(new Napi::Function());
-
 class PathWatcherWorker: public AsyncProgressQueueWorker<PathWatcherEvent> {
   public:
     PathWatcherWorker(Napi::Env env, Function &progressCallback);

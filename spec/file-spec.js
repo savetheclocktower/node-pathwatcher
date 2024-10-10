@@ -18,10 +18,10 @@ describe('File', () => {
     file = new File(filePath);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     file.unsubscribeFromNativeChangeEvents();
     fs.removeSync(filePath);
-    PathWatcher.closeAllWatchers();
+    await PathWatcher.closeAllWatchers();
   });
 
   it('normalizes the specified path', () => {
