@@ -291,13 +291,13 @@ void PlatformThread(
 
   ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
 
-  if (!g_thread_manager->is_main(addonData->id)) {
-    while (!g_thread_manager->is_main(addonData->id)) {
+  if (!g_thread_manager.is_main(addonData->id)) {
+    while (!g_thread_manager.is_main(addonData->id)) {
       std::cout << "Thread with ID: " << addonData->id " in holding pattern" << std::endl;
       // A holding-pattern loop for threads that aren't the “boss” thread.
       ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
       if (!thread_data) break; // (thread was unregistered)
-      if (g_thread_manager->is_main(addonData->id)) break;
+      if (g_thread_manager.is_main(addonData->id)) break;
 
       std::unique_lock<std::mutex> lock(thread_data->mutex);
       thread_data->cv.wait(lock, [thread_data] {
@@ -324,7 +324,7 @@ void PlatformThread(
     }
   }
 
-  if (!g_thread_manager->is_main(addonData->id)) {
+  if (!g_thread_manager.is_main(addonData->id)) {
     // If we get to this point and this still isn't the “boss” thread, then
     // we’ve broken out of the above loop but should not proceed. This thread
     // hasn't been promoted; it should stop.
@@ -339,7 +339,7 @@ void PlatformThread(
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
   // std::cout << "PlatformThread" << std::endl;
-  if (g_thread_manager->is_main(addonData->id)) {
+  if (g_thread_manager.is_main(addonData->id)) {
     while (!thread_data->should_stop) {
       // Do not use g_events directly, since reallocation could happen when there
       // are new watchers adding to g_events when WaitForMultipleObjects is still
