@@ -24,7 +24,10 @@ void PathWatcherWorker::Execute(
 }
 
 void PathWatcherWorker::Stop() {
-  // std::cout << "PathWatcherWorker::Stop" << std::endl;
+  Napi::Env env = Env();
+  auto addonData = env.GetInstanceData<AddonData>();
+  std::cout << "PathWatcherWorker::Stop for ID: " << addonData->id << std::endl;
+
   shouldStop = true;
 }
 
@@ -42,7 +45,10 @@ const char* PathWatcherWorker::GetEventTypeString(EVENT_TYPE type) {
 }
 
 void PathWatcherWorker::OnProgress(const PathWatcherEvent* data, size_t) {
-  HandleScope scope(Env());
+  Napi::Env env = Env();
+  HandleScope scope(env);
+  auto addonData = env.GetInstanceData<AddonData>();
+  std::cout << "OnProgress reporting event for environment with ID: " << addonData->id << std::endl;
   if (this->progressCallback.IsEmpty()) return;
   std::string newPath(data->new_path.begin(), data->new_path.end());
   std::string oldPath(data->old_path.begin(), data->old_path.end());

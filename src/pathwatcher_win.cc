@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <iostream>
+#include <queue>
 #include <thread>
 #include <unordered_map>
 #include "common.h"
@@ -17,21 +18,25 @@ struct ThreadData {
   std::queue<PathWatcherEvent> event_queue;
   std::mutex mutex;
   std::condition_variable cv;
-  PathWatcherWorker::ExecutionProgress progress;
+  const PathWatcherWorker::ExecutionProgress* progress;
   bool should_stop = false;
+  bool is_main = false;
 };
 
 class ThreadManager {
 public:
-  void register_thread(int id, PathWatcherWorker::ExecutionProgress progress) {
+  void register_thread(
+    int id,
+    const PathWatcherWorker::ExecutionProgress* progress
+  ) {
     std::lock_guard<std::mutex> lock(mutex_);
     threads_[id] = std::make_unique<ThreadData>();
-    threads_[id]->progress = std::move(progress);
+    threads_[id]->progress = progress;
   }
 
-  void unregister_thread(int id) {
+  bool unregister_thread(int id) {
     std::lock_guard<std::mutex> lock(mutex_);
-    threads_.erase(id);
+    return threads_.erase(id) > 0;
   }
 
   void queue_event(int id, PathWatcherEvent event) {
@@ -62,6 +67,12 @@ public:
     return threads_.find(id) != threads_.end();
   }
 
+  ThreadData* get_thread_data(int id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = threads_.find(id);
+    return it != threads_.end() ? it->second.get() : nullptr;
+  }
+
   std::unordered_map<int, std::unique_ptr<ThreadData>> threads_;
 
 private:
@@ -76,28 +87,35 @@ std::atomic<bool> g_platform_thread_running(false);
 
 void ThreadWorker(int id) {
   while (true) {
-    std::unique_lock<std::mutex> lock(g_thread_manager.threads_[id]->mutex);
-    g_thread_manager.threads_[id]->cv.wait(lock, [id] {
-      return !(
-        g_thread_manager.threads_[id]->event_queue.empty() ||
-        g_thread_manager.threads_[id]->should_stop
-      );
+    ThreadData* thread_data = g_thread_manager.get_thread_data(id);
+    if (!thread_data) break; // (thread was unregistered)
+
+    std::unique_lock<std::mutex> lock(thread_data->mutex);
+    std::cout << "[WAIT WAIT WAIT] ThreadWorker with ID: " << id << " has should_stop of: " << thread_data->should_stop << std::endl;
+    thread_data->cv.wait(lock, [thread_data] {
+      if (thread_data->should_stop) return true;
+      if (!thread_data->event_queue.empty()) return true;
+      return false;
     });
 
-    if (
-      g_thread_manager.threads_[id]->should_stop &&
-      g_thread_manager.threads_[id]->event_queue.empty()
-    ) {
+    // std::cout << "ThreadWorker with ID: " << id << "is unblocked. Why? " << "(internal_stop? " << thread_data->internal_stop << ") (should_stop? " << *(thread_data->should_stop) << ") (items in queue? " << !thread_data->event_queue.empty() << ")" << std::endl;
+
+    if (thread_data->should_stop && thread_data->event_queue.empty()) {
       break;
     }
 
-    while (!g_thread_manager.threads_[id]->event_queue.empty()) {
-      auto event = g_thread_manager.threads_[id]->event_queue.front();
-      g_thread_manager.threads_[id]->event_queue.pop();
+    while (!thread_data->event_queue.empty()) {
+      auto event = thread_data->event_queue.front();
+      thread_data->event_queue.pop();
       lock.unlock();
-      g_thread_manager.threads_[id]->progress.Send(&event, 1);
+      std::cout << "ThreadWorker with ID: " << id << " is sending event!" << std::endl;
+      thread_data->progress->Send(&event, 1);
       lock.lock();
+
+      if (thread_data->should_stop) break;
     }
+
+    if (thread_data->should_stop) break;
   }
 }
 
@@ -236,14 +254,14 @@ void PlatformThread(
   bool expected = false;
   if (!g_platform_thread_running.compare_exchange_strong(expected, true)) {
     // Another PlatformThread is already running.
-    g_thread_manager.register_thread(addon_data->id, progress);
-    ThreadWorker(addon_data->id);
-    g_thread_manager.unregister_thread(addon_data->id);
+    g_thread_manager.register_thread(addonData->id, &progress);
+    ThreadWorker(addonData->id);
+    g_thread_manager.unregister_thread(addonData->id);
     return;
   }
 
   // This is the primary thread
-  g_thread_manager.register_thread(addon_data->id, progress);
+  g_thread_manager.register_thread(addonData->id, &progress);
 
   // if (g_is_running) return;
   // g_is_running = true;
@@ -292,6 +310,10 @@ void PlatformThread(
       if (!g_thread_manager.has_thread(handle->addonDataId)) {
         std::cout << "Unrecognized environment: " << handle->addonDataId << std::endl;
         continue;
+      }
+
+      if (handle->addonDataId == addonData->id) {
+        std::cout << "OURS to handle! " << handle->addonDataId << std::endl;
       }
 
       DWORD bytes_transferred;
@@ -386,14 +408,19 @@ void PlatformThread(
       std::cout << "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
 
       for (size_t i = 0; i < events.size(); ++i) {
-        std::cout << "Emitting " << events[i].type << " event(s) on thread " << addonData->id << " for path: " << events[i].new_path.data() << " for worker with ID: " << handle->addonDataId << std::endl;
+        std::cout << "Emitting " << events[i].type << " event on thread " << addonData->id << " for path: " << events[i].new_path.data() << " for worker with ID: " << handle->addonDataId << std::endl;
         PathWatcherEvent event(
           events[i].type,
           events[i].handle,
           events[i].new_path,
           events[i].old_path
         );
-        g_thread_manager.queue_event(handle->addonDataId, event);
+        if (handle->addonDataId == addonData->id) {
+          std::cout << "Invoking directly " << addonData->id << std::endl;
+          progress.Send(&event, 1);
+        } else {
+          g_thread_manager.queue_event(handle->addonDataId, event);
+        }
       }
     }
   }
@@ -481,5 +508,11 @@ int PlatformInvalidHandleToErrorNumber(WatcherHandle handle) {
 
 void PlatformStop(Napi::Env env) {
   auto addonData = env.GetInstanceData<AddonData>();
-  g_thread_manager.unregister_thread(addon_data->id);
+  auto thread_data = g_thread_manager.get_thread_data(addonData->id);
+  if (thread_data) {
+    std::lock_guard<std::mutex> lock(thread_data->mutex);
+    thread_data->should_stop = true;
+    thread_data->cv.notify_one();
+    g_thread_manager.unregister_thread(addonData->id);
+  }
 }
