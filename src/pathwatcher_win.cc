@@ -58,6 +58,10 @@ public:
     return this->main_id > -1;
   }
 
+  bool is_main (int id) {
+    return id == this->main_id;
+  }
+
   void promote(int id) {
     auto data = this->get_thread_data(id);
     data->is_main = true;
@@ -287,12 +291,13 @@ void PlatformThread(
 
   ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
 
-  if (!thread_data->is_main) {
-    while (!thread_data->is_main) {
+  if (!g_thread_manager->is_main(addonData->id)) {
+    while (!g_thread_manager->is_main(addonData->id)) {
+      std::cout << "Thread with ID: " << addonData->id " in holding pattern" << std::endl;
       // A holding-pattern loop for threads that aren't the “boss” thread.
       ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
       if (!thread_data) break; // (thread was unregistered)
-      if (thread_data->is_main) break;
+      if (g_thread_manager->is_main(addonData->id)) break;
 
       std::unique_lock<std::mutex> lock(thread_data->mutex);
       thread_data->cv.wait(lock, [thread_data] {
@@ -319,7 +324,7 @@ void PlatformThread(
     }
   }
 
-  if (!thread_data->is_main) {
+  if (!g_thread_manager->is_main(addonData->id)) {
     // If we get to this point and this still isn't the “boss” thread, then
     // we’ve broken out of the above loop but should not proceed. This thread
     // hasn't been promoted; it should stop.
@@ -334,161 +339,164 @@ void PlatformThread(
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
   // std::cout << "PlatformThread" << std::endl;
-  while (!thread_data->should_stop) {
-    // Do not use g_events directly, since reallocation could happen when there
-    // are new watchers adding to g_events when WaitForMultipleObjects is still
-    // polling.
-    ScopedLocker locker(g_handle_wrap_map_mutex);
-    std::vector<HANDLE> copied_events(g_events);
-    locker.Unlock();
-
-    ResetEvent(g_file_handles_free_event);
-    std::cout << "Thread with ID: " << addonData->id << " is waiting..." << std::endl;
-    DWORD r = WaitForMultipleObjects(
-      copied_events.size(),
-      copied_events.data(),
-      FALSE,
-      100
-    );
-    SetEvent(g_file_handles_free_event);
-
-    if (r == WAIT_TIMEOUT) {
-      // Timeout occurred, check shouldStop flag
-      continue;
-    }
-    std::cout << "Thread with ID: " << addonData->id << " is done waiting." << std::endl;
-
-    int i = r - WAIT_OBJECT_0;
-    if (i >= 0 && i < copied_events.size()) {
-      // It's a wake up event, there is no fs events.
-      if (copied_events[i] == g_wake_up_event) {
-        std::cout << "Thread with ID: " << addonData->id << " received wake-up event. Continuing." << std::endl;
-        continue;
-      }
-
+  if (g_thread_manager->is_main(addonData->id)) {
+    while (!thread_data->should_stop) {
+      // Do not use g_events directly, since reallocation could happen when there
+      // are new watchers adding to g_events when WaitForMultipleObjects is still
+      // polling.
       ScopedLocker locker(g_handle_wrap_map_mutex);
-
-      HandleWrapper* handle = HandleWrapper::Get(copied_events[i]);
-      if (!handle || handle->canceled) {
-        continue;
-      }
-
-      if (!g_thread_manager.has_thread(handle->addonDataId)) {
-        std::cout << "Unrecognized environment: " << handle->addonDataId << std::endl;
-        continue;
-      }
-
-      if (handle->addonDataId == addonData->id) {
-        std::cout << "OURS to handle! " << handle->addonDataId << std::endl;
-      }
-
-      DWORD bytes_transferred;
-      if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE)) {
-        std::cout << "Nothing for thread: " << addonData->id << std::endl;
-        continue;
-      }
-      if (bytes_transferred == 0) {
-        std::cout << "Nothing for thread: " << addonData->id << std::endl;
-        continue;
-      }
-
-      std::vector<char> old_path;
-      std::vector<WatcherEvent> events;
-
-      DWORD offset = 0;
-      while (true) {
-        FILE_NOTIFY_INFORMATION* file_info =
-            reinterpret_cast<FILE_NOTIFY_INFORMATION*>(handle->buffer + offset);
-
-        // Emit events for children.
-        EVENT_TYPE event = EVENT_NONE;
-        switch (file_info->Action) {
-          case FILE_ACTION_ADDED:
-            event = EVENT_CHILD_CREATE;
-            break;
-          case FILE_ACTION_REMOVED:
-            event = EVENT_CHILD_DELETE;
-            break;
-          case FILE_ACTION_RENAMED_OLD_NAME:
-            event = EVENT_CHILD_RENAME;
-            break;
-          case FILE_ACTION_RENAMED_NEW_NAME:
-            event = EVENT_CHILD_RENAME;
-            break;
-          case FILE_ACTION_MODIFIED:
-            event = EVENT_CHILD_CHANGE;
-            break;
-        }
-
-        if (event != EVENT_NONE) {
-          // The FileNameLength is in "bytes", but the WideCharToMultiByte
-          // requires the length to be in "characters"!
-          int file_name_length_in_characters =
-              file_info->FileNameLength / sizeof(wchar_t);
-
-          char filename[MAX_PATH] = { 0 };
-          int size = WideCharToMultiByte(
-            CP_UTF8,
-            0,
-            file_info->FileName,
-            file_name_length_in_characters,
-            filename,
-            MAX_PATH,
-            NULL,
-            NULL
-          );
-
-          // Convert file name to file path, same with:
-          // path = handle->path + '\\' + filename
-          std::vector<char> path(handle->path.size() + 1 + size);
-          std::vector<char>::iterator iter = path.begin();
-          iter = std::copy(handle->path.begin(), handle->path.end(), iter);
-          *(iter++) = '\\';
-          std::copy(filename, filename + size, iter);
-
-          if (file_info->Action == FILE_ACTION_RENAMED_OLD_NAME) {
-            // Do not send rename event until the NEW_NAME event, but still keep
-            // a record of old name.
-            old_path.swap(path);
-          } else if (file_info->Action == FILE_ACTION_RENAMED_NEW_NAME) {
-            WatcherEvent e = { event, handle->overlapped.hEvent };
-            e.new_path.swap(path);
-            e.old_path.swap(old_path);
-            events.push_back(e);
-          } else {
-            WatcherEvent e = { event, handle->overlapped.hEvent };
-            e.new_path.swap(path);
-            events.push_back(e);
-          }
-        }
-
-        if (file_info->NextEntryOffset == 0) break;
-        offset += file_info->NextEntryOffset;
-      }
-
-      // Restart the monitor, it was reset after each call.
-      QueueReaddirchanges(handle);
-
+      std::vector<HANDLE> copied_events(g_events);
       locker.Unlock();
 
-      std::cout << "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
+      ResetEvent(g_file_handles_free_event);
+      std::cout << "Thread with ID: " << addonData->id << " is waiting..." << std::endl;
+      DWORD r = WaitForMultipleObjects(
+        copied_events.size(),
+        copied_events.data(),
+        FALSE,
+        100
+      );
+      SetEvent(g_file_handles_free_event);
 
-      for (size_t i = 0; i < events.size(); ++i) {
-        std::cout << "Emitting " << events[i].type << " event on thread " << addonData->id << " for path: " << events[i].new_path.data() << " for worker with ID: " << handle->addonDataId << std::endl;
-        PathWatcherEvent event(
-          events[i].type,
-          events[i].handle,
-          events[i].new_path,
-          events[i].old_path
-        );
-        if (handle->addonDataId == addonData->id) {
-          std::cout << "Invoking directly " << addonData->id << std::endl;
-          progress.Send(&event, 1);
-        } else {
-          g_thread_manager.queue_event(handle->addonDataId, event);
+      if (r == WAIT_TIMEOUT) {
+        // Timeout occurred, check shouldStop flag
+        continue;
+      }
+      std::cout << "Thread with ID: " << addonData->id << " is done waiting." << std::endl;
+
+      int i = r - WAIT_OBJECT_0;
+      if (i >= 0 && i < copied_events.size()) {
+        // It's a wake up event; there is no FS event.
+        if (copied_events[i] == g_wake_up_event) {
+          std::cout << "Thread with ID: " << addonData->id << " received wake-up event. Continuing." << std::endl;
+          continue;
+        }
+
+        ScopedLocker locker(g_handle_wrap_map_mutex);
+
+        // Match up the filesystem event with the handle responsible for it.
+        HandleWrapper* handle = HandleWrapper::Get(copied_events[i]);
+        if (!handle || handle->canceled) {
+          continue;
+        }
+
+        if (!g_thread_manager.has_thread(handle->addonDataId)) {
+          // Ignore handles that belong to stale environments.
+          std::cout << "Unrecognized environment: " << handle->addonDataId << std::endl;
+          continue;
+        }
+
+        DWORD bytes_transferred;
+        if (!GetOverlappedResult(handle->dir_handle, &handle->overlapped, &bytes_transferred, FALSE)) {
+          std::cout << "Nothing for thread: " << addonData->id << std::endl;
+          continue;
+        }
+        if (bytes_transferred == 0) {
+          std::cout << "Nothing for thread: " << addonData->id << std::endl;
+          continue;
+        }
+
+        std::vector<char> old_path;
+        std::vector<WatcherEvent> events;
+
+        DWORD offset = 0;
+        while (true) {
+          FILE_NOTIFY_INFORMATION* file_info =
+              reinterpret_cast<FILE_NOTIFY_INFORMATION*>(handle->buffer + offset);
+
+          // Emit events for children.
+          EVENT_TYPE event = EVENT_NONE;
+          switch (file_info->Action) {
+            case FILE_ACTION_ADDED:
+              event = EVENT_CHILD_CREATE;
+              break;
+            case FILE_ACTION_REMOVED:
+              event = EVENT_CHILD_DELETE;
+              break;
+            case FILE_ACTION_RENAMED_OLD_NAME:
+              event = EVENT_CHILD_RENAME;
+              break;
+            case FILE_ACTION_RENAMED_NEW_NAME:
+              event = EVENT_CHILD_RENAME;
+              break;
+            case FILE_ACTION_MODIFIED:
+              event = EVENT_CHILD_CHANGE;
+              break;
+          }
+
+          if (event != EVENT_NONE) {
+            // The FileNameLength is in "bytes", but the WideCharToMultiByte
+            // requires the length to be in "characters"!
+            int file_name_length_in_characters =
+                file_info->FileNameLength / sizeof(wchar_t);
+
+            char filename[MAX_PATH] = { 0 };
+            int size = WideCharToMultiByte(
+              CP_UTF8,
+              0,
+              file_info->FileName,
+              file_name_length_in_characters,
+              filename,
+              MAX_PATH,
+              NULL,
+              NULL
+            );
+
+            // Convert file name to file path, same with:
+            // path = handle->path + '\\' + filename
+            std::vector<char> path(handle->path.size() + 1 + size);
+            std::vector<char>::iterator iter = path.begin();
+            iter = std::copy(handle->path.begin(), handle->path.end(), iter);
+            *(iter++) = '\\';
+            std::copy(filename, filename + size, iter);
+
+            if (file_info->Action == FILE_ACTION_RENAMED_OLD_NAME) {
+              // Do not send rename event until the NEW_NAME event, but still keep
+              // a record of old name.
+              old_path.swap(path);
+            } else if (file_info->Action == FILE_ACTION_RENAMED_NEW_NAME) {
+              WatcherEvent e = { event, handle->overlapped.hEvent };
+              e.new_path.swap(path);
+              e.old_path.swap(old_path);
+              events.push_back(e);
+            } else {
+              WatcherEvent e = { event, handle->overlapped.hEvent };
+              e.new_path.swap(path);
+              events.push_back(e);
+            }
+          }
+
+          if (file_info->NextEntryOffset == 0) break;
+          offset += file_info->NextEntryOffset;
+        }
+
+        // Restart the monitor, it was reset after each call.
+        QueueReaddirchanges(handle);
+
+        locker.Unlock();
+
+        std::cout << "Total events processed on thread " << addonData->id << ": " << events.size() << std::endl;
+
+        for (size_t i = 0; i < events.size(); ++i) {
+          std::cout << "Emitting " << events[i].type << " event on thread " << addonData->id << " for path: " << events[i].new_path.data() << " for worker with ID: " << handle->addonDataId << std::endl;
+          PathWatcherEvent event(
+            events[i].type,
+            events[i].handle,
+            events[i].new_path,
+            events[i].old_path
+          );
+          if (handle->addonDataId == addonData->id) {
+            // This event belongs to our thread, so we can handle it directly.
+            std::cout << "Invoking directly " << addonData->id << std::endl;
+            progress.Send(&event, 1);
+          } else {
+            // Since it's not ours, we should enqueue it to be handled by the
+            // thread responsible for it.
+            g_thread_manager.queue_event(handle->addonDataId, event);
+          }
         }
       }
-    }
+    } // while
   }
 
   std::cout << "PlatformThread with ID: " << addonData->id << " is exiting! " << std::endl;
