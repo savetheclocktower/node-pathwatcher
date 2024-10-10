@@ -35,6 +35,7 @@ void PlatformThread(
   char buf[4096];
 
   while (!shouldStop) {
+    std::cout << "PlatformThread loop ID: " << addonData->id << std::endl;
     fd_set read_fds;
     FD_ZERO(&read_fds);
     FD_SET(addonData->inotify, &read_fds);
