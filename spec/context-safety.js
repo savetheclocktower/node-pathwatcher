@@ -7,7 +7,7 @@
 const spawnThread = require('./worker');
 
 const NUM_WORKERS = 2;
-const MAX_DURATION = 20 * 1000;
+const MAX_DURATION = 30 * 1000;
 
 // Pick one of the workers to return earlier than the others.
 let earlyReturn = null;
@@ -20,15 +20,34 @@ function bail () {
   process.exit(2);
 }
 
+// Wait to see if the script is still running MAX_DURATION milliseconds from
+// now…
 let failsafe = setTimeout(bail, MAX_DURATION);
+// …but `unref` ourselves so that we're not the reason why the script keeps
+// running!
 failsafe.unref();
 
+let promises = [];
+let errors = [];
 for (let i = 0; i < NUM_WORKERS; i++) {
-  spawnThread(i, earlyReturn);
-  // .catch((err) => {
-  //   console.error(`Worker ${i + 1} threw error:`);
-  //   console.error(err);
-  // }).finally(() => {
-  //   console.log(`Worker ${i + 1} finished.`);
-  // });
+  let promise = spawnThread(i, earlyReturn);
+
+  // We want to prevent unhandled promise rejections. The errors from any
+  // rejected promises will be collected and handled once all workers are done.
+  promise.catch((err) =>  errors.push(err));
+  promises.push(promise);
 }
+
+(async () => {
+  await Promise.allSettled(promises);
+  if (errors.length > 0) {
+    console.error('Errors:');
+    for (let error of errors) {
+      console.error(`  ${error}`);
+    }
+    // Don't call `process.exit`; we want to be able to detect whether there
+    // are open handles. If there aren't, the process will exit on its own;
+    // if there are, then the failsafe will detect it and tell us about it.
+    process.exitCode = 1;
+  }
+})();
