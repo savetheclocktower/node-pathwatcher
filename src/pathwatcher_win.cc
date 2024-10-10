@@ -340,7 +340,7 @@ void PlatformThread(
 
   // std::cout << "PlatformThread" << std::endl;
   if (g_thread_manager.is_main(addonData->id)) {
-    while (!thread_data->should_stop) {
+    while (!thread_data->should_stop && !shouldStop) {
       // Do not use g_events directly, since reallocation could happen when there
       // are new watchers adding to g_events when WaitForMultipleObjects is still
       // polling.
@@ -359,7 +359,6 @@ void PlatformThread(
       SetEvent(g_file_handles_free_event);
 
       if (r == WAIT_TIMEOUT) {
-        // Timeout occurred, check shouldStop flag
         continue;
       }
       std::cout << "Thread with ID: " << addonData->id << " is done waiting." << std::endl;
