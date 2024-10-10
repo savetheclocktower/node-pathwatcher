@@ -290,7 +290,7 @@ void PlatformThread(
   if (!thread_data->is_main) {
     while (!thread_data->is_main) {
       // A holding-pattern loop for threads that aren't the “boss” thread.
-      ThreadData* thread_data = g_thread_manager.get_thread_data(id);
+      ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
       if (!thread_data) break; // (thread was unregistered)
       if (thread_data->is_main) break;
 
