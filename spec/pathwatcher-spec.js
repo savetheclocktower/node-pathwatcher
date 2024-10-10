@@ -2,7 +2,6 @@ const PathWatcher = require('../src/main');
 const fs = require('fs-plus');
 const path = require('path');
 const temp = require('temp');
-require('./spec-helper.js');
 
 temp.track();
 

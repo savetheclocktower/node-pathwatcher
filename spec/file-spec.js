@@ -3,7 +3,6 @@ const fs = require('fs-plus');
 const temp = require('temp');
 const File = require('../src/file');
 const PathWatcher = require('../src/main');
-require('./spec-helper.js');
 
 describe('File', () => {
   let filePath;

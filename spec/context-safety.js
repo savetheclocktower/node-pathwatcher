@@ -7,8 +7,21 @@
 const spawnThread = require('./worker');
 
 const NUM_WORKERS = 2;
+const MAX_DURATION = 20 * 1000;
 
-const earlyReturn = Math.floor(Math.random() * NUM_WORKERS);
+// Pick one of the workers to return earlier than the others.
+let earlyReturn = null;
+if (NUM_WORKERS > 1) {
+  earlyReturn = Math.floor(Math.random() * NUM_WORKERS);
+}
+
+function bail () {
+  console.error(`Script ran for more than ${MAX_DURATION / 1000} seconds; there's an open handle somewhere!`);
+  process.exit(2);
+}
+
+let failsafe = setTimeout(bail, MAX_DURATION);
+failsafe.unref();
 
 for (let i = 0; i < NUM_WORKERS; i++) {
   spawnThread(i, earlyReturn);

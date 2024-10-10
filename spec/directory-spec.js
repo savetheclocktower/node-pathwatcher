@@ -3,7 +3,6 @@ const fs = require('fs-plus');
 const temp = require('temp');
 const Directory = require('../src/directory');
 const PathWatcher = require('../src/main');
-require('./spec-helper.js');
 
 describe('Directory', () => {
   let directory;
