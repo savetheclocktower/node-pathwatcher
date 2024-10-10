@@ -27,16 +27,41 @@ class ThreadManager {
 public:
   void register_thread(
     int id,
-    const PathWatcherWorker::ExecutionProgress* progress
+    const PathWatcherWorker::ExecutionProgress* progress,
+    bool is_main
   ) {
     std::lock_guard<std::mutex> lock(mutex_);
     threads_[id] = std::make_unique<ThreadData>();
     threads_[id]->progress = progress;
+    threads_[id]->is_main = is_main;
+    if (is_main) {
+      this->main_id = id;
+    }
   }
 
   bool unregister_thread(int id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (id == this->main_id) {
+      this->main_id = -1;
+      for (const auto& pair : threads_) {
+        if (pair.first != id) {
+          std::cout << "Unregistering the main thread. Promoting " << pair.first << " to be the new boss thread." << std::endl;
+          promote(pair.first);
+          break;
+        }
+      }
+    }
     return threads_.erase(id) > 0;
+  }
+
+  int has_main () {
+    return this->main_id > -1;
+  }
+
+  void promote(int id) {
+    auto data = this->get_thread_data(id);
+    data->is_main = true;
+    this->main_id = id;
   }
 
   void queue_event(int id, PathWatcherEvent event) {
@@ -77,6 +102,7 @@ public:
 
 private:
   mutable std::mutex mutex_;
+  int main_id = -1;
 };
 
 // Global instance
@@ -251,24 +277,64 @@ void PlatformThread(
 ) {
   auto addonData = env.GetInstanceData<AddonData>();
 
-  bool expected = false;
-  if (!g_platform_thread_running.compare_exchange_strong(expected, true)) {
-    // Another PlatformThread is already running.
-    g_thread_manager.register_thread(addonData->id, &progress);
-    ThreadWorker(addonData->id);
+  bool hasMainThread = !g_thread_manager.is_empty();
+  // bool expected = false;
+  // bool hasMainThread = g_platform_thread_running.compare_exchange_strong(expected, true);
+
+  if (!g_thread_manager.has_thread(addonData->id)) {
+    g_thread_manager.register_thread(addonData->id, &progress, !hasMainThread);
+  }
+
+  ThreadData* thread_data = g_thread_manager.get_thread_data(id);
+
+  if (!thread_data->is_main) {
+    while (!thread_data->is_main) {
+      // A holding-pattern loop for threads that aren't the “boss” thread.
+      ThreadData* thread_data = g_thread_manager.get_thread_data(id);
+      if (!thread_data) break; // (thread was unregistered)
+      if (thread_data->is_main) break;
+
+      std::unique_lock<std::mutex> lock(thread_data->mutex);
+      thread_data->cv.wait(lock, [thread_data] {
+        if (thread_data->should_stop) return true;
+        if (!thread_data->event_queue.empty()) return true;
+        return false;
+      });
+
+      if (thread_data->should_stop && thread_data->event_queue.empty()) {
+        break;
+      }
+
+      while (!thread_data->event_queue.empty()) {
+        auto event = thread_data->event_queue.front();
+        thread_data->event_queue.pop();
+        lock.unlock();
+        thread_data->progress->Send(&event, 1);
+        lock.lock();
+
+        if (thread_data->should_stop) break;
+      }
+
+      if (thread_data->should_stop) break;
+    }
+  }
+
+  if (!thread_data->is_main) {
+    // If we get to this point and this still isn't the “boss” thread, then
+    // we’ve broken out of the above loop but should not proceed. This thread
+    // hasn't been promoted; it should stop.
     g_thread_manager.unregister_thread(addonData->id);
     return;
   }
 
-  // This is the primary thread
-  g_thread_manager.register_thread(addonData->id, &progress);
+  // If we get this far, then this is the main thread — either because it was
+  // the first to be created or because it's been promoted after another thread
+  // was stopped.
 
-  // if (g_is_running) return;
-  // g_is_running = true;
   std::cout << "PlatformThread ID: " << addonData->id << std::endl;
 
   // std::cout << "PlatformThread" << std::endl;
-  while (!g_thread_manager.is_empty()) {
+  while (!thread_data->should_stop) {
     // Do not use g_events directly, since reallocation could happen when there
     // are new watchers adding to g_events when WaitForMultipleObjects is still
     // polling.
@@ -426,9 +492,9 @@ void PlatformThread(
   }
 
   std::cout << "PlatformThread with ID: " << addonData->id << " is exiting! " << std::endl;
-  g_thread_manager.stop_all();
+  // g_thread_manager.stop_all();
   g_thread_manager.unregister_thread(addonData->id);
-  g_platform_thread_running = false;
+  // g_platform_thread_running = false;
 }
 
 // // Function to get the vector for a given AddonData
