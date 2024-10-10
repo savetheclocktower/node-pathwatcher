@@ -293,7 +293,7 @@ void PlatformThread(
 
   if (!g_thread_manager.is_main(addonData->id)) {
     while (!g_thread_manager.is_main(addonData->id)) {
-      std::cout << "Thread with ID: " << addonData->id " in holding pattern" << std::endl;
+      std::cout << "Thread with ID: " << addonData->id << " in holding pattern" << std::endl;
       // A holding-pattern loop for threads that aren't the “boss” thread.
       ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
       if (!thread_data) break; // (thread was unregistered)
