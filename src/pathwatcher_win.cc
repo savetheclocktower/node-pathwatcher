@@ -285,7 +285,7 @@ void PlatformThread(
     g_thread_manager.register_thread(addonData->id, &progress, !hasMainThread);
   }
 
-  ThreadData* thread_data = g_thread_manager.get_thread_data(id);
+  ThreadData* thread_data = g_thread_manager.get_thread_data(addonData->id);
 
   if (!thread_data->is_main) {
     while (!thread_data->is_main) {
