@@ -1,0 +1,3 @@
+[submodule "vendor/efsw"]
+	path = vendor/efsw
+	url = git@github.com:SpartanJ/efsw.git

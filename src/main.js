@@ -88,7 +88,7 @@ class HandleWatcher {
 
   start () {
     let troubleWatcher;
-    this.handle = binding.watch(this.path);
+    this.handle = binding.watch(this.path, callback);
     if (HANDLE_WATCHERS.has(this.handle)) {
       troubleWatcher = HANDLE_WATCHERS.get(this.handle);
       troubleWatcher.close();
@@ -119,10 +119,10 @@ class PathWatcher {
   constructor(filePath, callback) {
     this.path = filePath;
     this.emitter = new Emitter();
-    if (process.platform === 'win32') {
-      let stats = fs.statSync(filePath);
-      this.isWatchingParent = !stats.isDirectory();
-    }
+
+    let stats = fs.statSync(filePath);
+    this.isWatchingParent = !stats.isDirectory();
+
     if (this.isWatchingParent) {
       filePath = path.dirname(filePath);
     }
@@ -194,15 +194,12 @@ class PathWatcher {
   }
 }
 
-function watch (pathToWatch, callback) {
-  if (!initialized) {
-    initialized = true;
-    binding.setCallback((event, handle, filePath, oldFilePath) => {
-      if (!HANDLE_WATCHERS.has(handle)) return;
-      HANDLE_WATCHERS.get(handle).onEvent(event, filePath, oldFilePath);
-    });
-  }
+function callback(event, handle, filePath, oldFilePath) {
+  if (!HANDLE_WATCHERS.has(handle)) return;
+  HANDLE_WATCHERS.get(handle).onEvent(event, filePath, oldFilePath);
+}
 
+function watch (pathToWatch, callback) {
   return new PathWatcher(path.resolve(pathToWatch), callback);
 }
 

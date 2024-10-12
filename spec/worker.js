@@ -51,7 +51,7 @@ if (isMainThread) {
     });
   };
 } else {
-  const tempDir = temp.mkdirSync('node-pathwatcher-directory');
+  let tempDir = temp.mkdirSync('node-pathwatcher-directory');
   const tempFile = path.join(tempDir, 'file');
 
   const { watch, closeAllWatchers } = require('../src/main');
@@ -69,7 +69,7 @@ if (isMainThread) {
       console.log('Scheduler', this.id, 'starting at', performance.now(), 'watching path:', this.path);
       this.watcher = watch(this.path, (event) => {
         this.callCount++;
-        console.log('PathWatcher event for worker', this.id, event)
+        console.warn('\x1b[33m%s\x1b[0m', 'PathWatcher event for worker', this.id, event)
         console.log('callCount is now:', this.callCount);
       });
       console.log('Scheduler', this.id, 'ready at:', performance.now());
@@ -84,7 +84,7 @@ if (isMainThread) {
     console.log('Worker', workerData.id, 'creating file:', tempFile);
     fs.writeFileSync(tempFile, '');
     await wait(500);
-    const scheduler = new Scheduler(workerData.id, tempFile);
+    const scheduler = new Scheduler(workerData.id, tempDir);
     scheduler.start();
     await wait(2000);
 
@@ -95,10 +95,11 @@ if (isMainThread) {
     console.log('Worker', scheduler.id, 'changing file again:', tempFile);
     // Should generate another event:
     fs.writeFileSync(tempFile, 'changed again');
+    await wait(500);
     if (workerData.earlyReturn) {
       console.log('Worker', scheduler.id, 'returning early!');
     } else {
-      await wait(1000);
+      await wait(500);
       // Should generate a final event (total count 3 or 4):
       console.log('Worker', scheduler.id, 'deleting file:', tempFile);
       fs.rmSync(tempFile);
