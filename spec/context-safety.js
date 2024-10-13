@@ -6,7 +6,7 @@
 // script segfaults or runs indefinitely.
 const spawnThread = require('./worker');
 
-const NUM_WORKERS = 2;
+const NUM_WORKERS = 3;
 const MAX_DURATION = 15 * 1000;
 
 // Pick one of the workers to return earlier than the others.
