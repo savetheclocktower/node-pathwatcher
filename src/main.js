@@ -228,6 +228,10 @@ async function callback(event, handle, filePath, oldFilePath) {
   if (!HANDLE_WATCHERS.has(handle)) return;
   LAST_EVENT_PER_PATH.set(filePath, event);
 
+  // Grab a reference to the watcher before we wait; it might be deleted from
+  // the registry after we wait.
+  let watcher = HANDLE_WATCHERS.get(handle);
+
   await wait(10);
   let lastEvent = LAST_EVENT_PER_PATH.get(filePath);
   if (lastEvent !== event) {
@@ -238,7 +242,7 @@ async function callback(event, handle, filePath, oldFilePath) {
     return;
   }
 
-  HANDLE_WATCHERS.get(handle).onEvent(event, filePath, oldFilePath);
+  watcher.onEvent(event, filePath, oldFilePath);
 }
 
 function watch (pathToWatch, callback) {
