@@ -1,4 +1,3 @@
-
 let binding;
 try {
   binding = require('../build/Debug/pathwatcher.node');
@@ -10,7 +9,6 @@ const fs = require('fs');
 const path = require('path');
 
 const HANDLE_WATCHERS = new Map();
-let initialized = false;
 
 function wait (ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -77,7 +75,7 @@ class HandleWatcher {
       default:
         this.emitter.emit(
           'did-change',
-          { event, newFilePath: filePath, oldFilePath }
+          { event, newFilePath: filePath, oldFilePath, rawFilePath: filePath }
         );
     }
   }
@@ -143,13 +141,23 @@ class PathWatcher {
     }
     this.handleWatcher ??= new HandleWatcher(filePath);
 
-    this.onChange = ({ event, newFilePath, oldFilePath }) => {
+    this.onChange = ({ event, newFilePath, oldFilePath, rawFilePath }) => {
+      // Filter out strange events.
+      let comparisonPath = this.path ?? this.realPath;
+      if (rawFilePath && (comparisonPath.length > rawFilePath.length)) {
+        // This is weird. Not sure why this happens yet. It's most likely an
+        // event for a parent directory of what we're watching. Ideally we can
+        // filter this out earlier in the process, like in the native code, but
+        // that would involve doing earlier symlink resolution.
+        return;
+      }
       switch (event) {
         case 'rename':
         case 'change':
         case 'delete':
           if (event === 'rename') {
             this.path = newFilePath;
+            this.assignRealPath();
           }
           if (typeof callback === 'function') {
             callback.call(this, event, newFilePath);
@@ -184,7 +192,13 @@ class PathWatcher {
           break;
         case 'child-create':
           if (!this.isWatchingParent) {
-            return this.onChange({ event: 'change', newFilePath: '' });
+            if (this.matches(newFilePath)) {
+              // If we are watching a file already, it must exist. There is no
+              // `create` event. This should not be handled because it's
+              // invalid.
+              return;
+            }
+            return this.onChange({ event: 'change', newFilePath: '', rawFilePath });
           }
       }
     };
@@ -222,21 +236,12 @@ class PathWatcher {
   }
 }
 
-const LAST_EVENT_PER_PATH = new Map();
-
 async function callback(event, handle, filePath, oldFilePath) {
   if (!HANDLE_WATCHERS.has(handle)) return;
-  LAST_EVENT_PER_PATH.set(filePath, event);
 
   // Grab a reference to the watcher before we wait; it might be deleted from
   // the registry after we wait.
   let watcher = HANDLE_WATCHERS.get(handle);
-
-  await wait(10);
-  let lastEvent = LAST_EVENT_PER_PATH.get(filePath);
-  if (lastEvent !== event) {
-    return;
-  }
 
   if (event.includes('delete') && fs.existsSync(filePath)) {
     return;

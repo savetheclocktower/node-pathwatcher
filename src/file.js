@@ -8,6 +8,10 @@ const Grim = require('grim');
 let iconv;
 let Directory;
 
+async function wait (ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 const PathWatcher = require('./main');
 
 class File {
@@ -60,7 +64,15 @@ class File {
 
   onDidChange (callback) {
     this.willAddSubscription();
-    return this.trackUnsubscription(this.emitter.on('did-change', callback));
+    // Add a small buffer here. If a file has changed, we want to wait briefly
+    // to see if it's prelude to a delete event (as EFSW sometimes does). The
+    // good news is that we don't have to wait very long at all.
+    let wrappedCallback = async (...args) => {
+      await wait(0);
+      if (!(await this.exists())) return;
+      callback(...args);
+    };
+    return this.trackUnsubscription(this.emitter.on('did-change', wrappedCallback));
   }
 
   onDidRename (callback) {
