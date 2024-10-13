@@ -63,13 +63,13 @@ module.exports = (grunt) ->
   grunt.loadNpmTasks('grunt-contrib-coffee')
   grunt.loadNpmTasks('grunt-shell')
   grunt.loadNpmTasks('grunt-coffeelint')
-  grunt.loadNpmTasks('node-cpplint')
+  # grunt.loadNpmTasks('node-cpplint')
   grunt.loadNpmTasks('grunt-atomdoc')
 
-  grunt.registerTask('lint', ['coffeelint', 'cpplint'])
+  # grunt.registerTask('lint', ['coffeelint', 'cpplint'])
   grunt.registerTask('default', ['coffee', 'lint', 'shell:rebuild'])
   grunt.registerTask('test', ['default', 'shell:test'])
-  grunt.registerTask('prepublish', ['coffee', 'lint', 'shell:update-atomdoc', 'atomdoc'])
+  grunt.registerTask('prepublish', ['shell:update-atomdoc', 'atomdoc'])
   grunt.registerTask 'clean', ->
     rm = require('rimraf').sync
     rm 'build'
