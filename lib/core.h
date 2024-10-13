@@ -69,6 +69,7 @@ struct PathWatcherEvent {
 class PathWatcherListener: public efsw::FileWatchListener {
 public:
   PathWatcherListener(Napi::Env env, Napi::Function fn);
+  ~PathWatcherListener();
   void handleFileAction(
     efsw::WatchID watchId,
     const std::string& dir,
@@ -77,9 +78,10 @@ public:
     std::string oldFilename
   ) override;
 
-  void unref();
+  void Stop();
 
 private:
+  const std::chrono::milliseconds delayDuration{100}; // 100ms delay
   Napi::Function callback;
   Napi::ThreadSafeFunction tsfn;
 };
@@ -99,6 +101,7 @@ namespace EFSW {
   };
 
   void Init(Napi::Env env);
+  void Cleanup(Napi::Env env);
 
   Napi::Value Watch(const Napi::CallbackInfo& info);
   Napi::Value Unwatch(const Napi::CallbackInfo& info);

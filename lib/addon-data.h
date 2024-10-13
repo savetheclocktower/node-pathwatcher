@@ -10,6 +10,7 @@ public:
   }
 
   int id;
-  unsigned int watchCount = 0;
+  int watchCount = 0;
   efsw::FileWatcher* fileWatcher;
+  std::unordered_map<WatcherHandle, PathWatcherListener*> listeners;
 };
