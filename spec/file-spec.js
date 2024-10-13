@@ -194,13 +194,15 @@ describe('File', () => {
     describe('when a file is moved (via the filesystem)', () => {
       let newPath = null;
 
-      beforeEach(() => {
+      beforeEach(async () => {
         newPath = path.join(path.dirname(filePath), 'file-was-moved-test.txt');
       });
 
       afterEach(async () => {
         if (!fs.existsSync(newPath)) return;
+        // console.log(chalk.red('removing…'));
         fs.removeSync(newPath);
+        // console.log(chalk.red('…removed.'));
         let deleteHandler = jasmine.createSpy('deleteHandler');
         file.onDidDelete(deleteHandler);
         await condition(() => deleteHandler.calls.count() > 0, 30000);
@@ -210,7 +212,9 @@ describe('File', () => {
         let moveHandler = jasmine.createSpy('moveHandler');
         file.onDidRename(moveHandler);
 
+        // console.log(chalk.blue('moving…'));
         fs.moveSync(filePath, newPath);
+        // console.log(chalk.blue('…moved.'));
 
         await condition(() => moveHandler.calls.count() > 0, 30000);
 
@@ -243,13 +247,19 @@ describe('File', () => {
         file.onDidDelete(deleteHandler);
 
         expect(changeHandler).not.toHaveBeenCalled();
+        // console.log(chalk.blue('deleting…'));
         fs.removeSync(filePath);
+        // console.log(chalk.blue('…deleted.'));
         expect(changeHandler).not.toHaveBeenCalled();
 
         await wait(20);
 
-        fs.writeFileSync(filePath, 'HE HAS RISEN!');
         expect(changeHandler).not.toHaveBeenCalled();
+
+        // console.log(chalk.blue('resurrecting…'));
+        fs.writeFileSync(filePath, 'HE HAS RISEN!');
+        // console.log(chalk.blue('resurrected.'));
+
 
         await condition(() => changeHandler.calls.count() === 1);
 
