@@ -116,8 +116,17 @@ class PathWatcher {
   isWatchingParent = false;
   path = null;
   handleWatcher = null;
+
   constructor(filePath, callback) {
     this.path = filePath;
+
+    if (!fs.existsSync(filePath)) {
+      let err = new Error(`Unable to watch path`);
+      err.code = 'ENOENT';
+      throw err;
+    }
+
+    this.assignRealPath();
     this.emitter = new Emitter();
 
     let stats = fs.statSync(filePath);
@@ -152,7 +161,7 @@ class PathWatcher {
           return;
         case 'child-rename':
           if (this.isWatchingParent) {
-            if (this.path === oldFilePath) {
+            if (this.matches(oldFilePath)) {
               return this.onChange({ event: 'rename', newFilePath });
             }
           } else {
@@ -161,7 +170,7 @@ class PathWatcher {
           break;
         case 'child-delete':
           if (this.isWatchingParent) {
-            if (this.path === newFilePath) {
+            if (this.matches(newFilePath)) {
               return this.onChange({ event: 'delete', newFilePath: null });
             }
           } else {
@@ -169,7 +178,7 @@ class PathWatcher {
           }
           break;
         case 'child-change':
-          if (this.isWatchingParent && this.path === newFilePath) {
+          if (this.isWatchingParent && this.matches(newFilePath)) {
             return this.onChange({ event: 'change', newFilePath: '' });
           }
           break;
@@ -183,6 +192,25 @@ class PathWatcher {
     this.disposable = this.handleWatcher.onDidChange(this.onChange);
   }
 
+  matches (otherPath) {
+    if (this.realPath) {
+      return this.realPath === otherPath;
+    } else {
+      return this.path === otherPath;
+    }
+  }
+
+  assignRealPath () {
+    try {
+      this.realPath = fs.realpathSync(this.path);
+      if (this.realPath) {
+        // console.log('We think the real path is:', this.realPath);
+      }
+    } catch (_error) {
+      this.realPath = null;
+    }
+  }
+
   onDidChange (callback) {
     return this.emitter.on('did-change', callback);
   }
@@ -194,8 +222,22 @@ class PathWatcher {
   }
 }
 
-function callback(event, handle, filePath, oldFilePath) {
+const LAST_EVENT_PER_PATH = new Map();
+
+async function callback(event, handle, filePath, oldFilePath) {
   if (!HANDLE_WATCHERS.has(handle)) return;
+  LAST_EVENT_PER_PATH.set(filePath, event);
+
+  await wait(10);
+  let lastEvent = LAST_EVENT_PER_PATH.get(filePath);
+  if (lastEvent !== event) {
+    return;
+  }
+
+  if (event.includes('delete') && fs.existsSync(filePath)) {
+    return;
+  }
+
   HANDLE_WATCHERS.get(handle).onEvent(event, filePath, oldFilePath);
 }
 
