@@ -71,7 +71,6 @@ describe('PathWatcher', () => {
         });
 
         let tempRenamed = path.join(tempDir, 'renamed');
-        await wait(100);
         fs.renameSync(tempFile, tempRenamed);
 
         await condition(() => !!eventType);
@@ -123,8 +122,6 @@ describe('PathWatcher', () => {
       if (fs.existsSync(newFile)) {
         fs.unlinkSync(newFile);
       }
-      console.log('ABOUT TO WATCH FAILING TEST');
-      console.log('===========================');
       PathWatcher.watch(tempDir, (type, path) => {
         fs.unlinkSync(newFile);
         expect(type).toBe('change');
@@ -132,8 +129,6 @@ describe('PathWatcher', () => {
         done();
       });
 
-      console.log('WRITING NEW FILE');
-      console.log('================');
       fs.writeFileSync(newFile, 'x');
     });
   });
