@@ -3,6 +3,9 @@
 #include "include/efsw/efsw.hpp"
 #include "napi.h"
 #include <string>
+#ifdef __APPLE__
+#include <sys/stat.h>
+#endif
 
 void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* event);
 
@@ -50,11 +53,32 @@ void PathWatcherListener::handleFileAction(
   efsw::Action action,
   std::string oldFilename
 ) {
-  // std::cout << "PathWatcherListener::handleFileAction" << std::endl;
-  // std::cout << "Action: " << EventType(action, true) << ", Dir: " << dir << ", Filename: " << filename << ", Old Filename: " << oldFilename << std::endl;
+  std::cout << "PathWatcherListener::handleFileAction" << std::endl;
+  std::cout << "Action: " << EventType(action, true) << ", Dir: " << dir << ", Filename: " << filename << ", Old Filename: " << oldFilename << std::endl;
 
   std::string newPathStr = dir + filename;
   std::vector<char> newPath(newPathStr.begin(), newPathStr.end());
+
+#ifdef __APPLE__
+  // macOS seems to think that lots of file creations happen that aren't
+  // actually creations; for instance, multiple successive writes to the same
+  // file will sometimes nonsensically produce a `child-create` event preceding
+  // each `child-change` event.
+  //
+  // Luckily, we can easily check whether or not a file has actually been
+  // created on macOS; we can compare creation time to modification time.
+  if (action == efsw::Action::Add) {
+    struct stat file;
+    if (stat(newPathStr.c_str(), &file) != 0) {
+      return;
+    }
+    if (file.st_birthtimespec.tv_sec != file.st_mtimespec.tv_sec) {
+      // std::cout << "Skipping spurious creation event!" << std::endl;
+      return;
+    }
+  }
+
+#endif
 
   std::vector<char> oldPath;
   if (!oldFilename.empty()) {
