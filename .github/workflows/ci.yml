@@ -31,8 +31,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests
-        run: npm test
-
       - name: Run context safety test
         run: npm run test-context-safety
+
+      - name: Run tests
+        run: npm test
