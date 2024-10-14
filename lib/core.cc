@@ -53,8 +53,8 @@ void PathWatcherListener::handleFileAction(
   efsw::Action action,
   std::string oldFilename
 ) {
-  std::cout << "PathWatcherListener::handleFileAction" << std::endl;
-  std::cout << "Action: " << EventType(action, true) << ", Dir: " << dir << ", Filename: " << filename << ", Old Filename: " << oldFilename << std::endl;
+  // std::cout << "PathWatcherListener::handleFileAction" << std::endl;
+  // std::cout << "Action: " << EventType(action, true) << ", Dir: " << dir << ", Filename: " << filename << ", Old Filename: " << oldFilename << std::endl;
 
   std::string newPathStr = dir + filename;
   std::vector<char> newPath(newPathStr.begin(), newPathStr.end());
