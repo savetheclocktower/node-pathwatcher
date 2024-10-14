@@ -7,8 +7,6 @@
 #include <sys/stat.h>
 #endif
 
-void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* event);
-
 PathWatcherListener::PathWatcherListener(Napi::Env env, Napi::Function fn)
   : callback(fn) {
   tsfn = Napi::ThreadSafeFunction::New(
@@ -25,6 +23,7 @@ PathWatcherListener::~PathWatcherListener() {
 }
 
 void PathWatcherListener::Stop() {
+  // Prevent responders from acting while we shut down.
   std::lock_guard<std::mutex> lock(shutdownMutex);
   isShuttingDown = true;
   if (tsfn) {
@@ -55,11 +54,10 @@ void PathWatcherListener::handleFileAction(
   efsw::Action action,
   std::string oldFilename
 ) {
+  // Don't try to proceed if we've already started the shutdown process.
   if (isShuttingDown) return;
   std::lock_guard<std::mutex> lock(shutdownMutex);
   if (isShuttingDown) return;
-  // std::cout << "PathWatcherListener::handleFileAction" << std::endl;
-  // std::cout << "Action: " << EventType(action, true) << ", Dir: " << dir << ", Filename: " << filename << ", Old Filename: " << oldFilename << std::endl;
 
   std::string newPathStr = dir + filename;
   std::vector<char> newPath(newPathStr.begin(), newPathStr.end());
@@ -71,7 +69,7 @@ void PathWatcherListener::handleFileAction(
   // each `child-change` event.
   //
   // Luckily, we can easily check whether or not a file has actually been
-  // created on macOS; we can compare creation time to modification time.
+  // created on macOS: we can compare creation time to modification time.
   if (action == efsw::Action::Add) {
     struct stat file;
     if (stat(newPathStr.c_str(), &file) != 0) {
@@ -82,7 +80,6 @@ void PathWatcherListener::handleFileAction(
       return;
     }
   }
-
 #endif
 
   std::vector<char> oldPath;
@@ -94,20 +91,33 @@ void PathWatcherListener::handleFileAction(
   PathWatcherEvent* event = new PathWatcherEvent(action, watchId, newPath, oldPath);
   napi_status status = tsfn.BlockingCall(event, ProcessEvent);
   if (status != napi_ok) {
-    // std::cerr << "Error in BlockingCall: " << status << std::endl;
-    delete event;  // Clean up if BlockingCall fails
+    // TODO: Not sure how this could fail, or how we should present it to the
+    // user if it does fail. This action runs on a separate thread and it's not
+    // immediately clear how we'd surface an exception from here.
+    delete event;
   }
 }
 
 void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* event) {
   std::unique_ptr<PathWatcherEvent> eventPtr(event);
   if (event == nullptr) {
-    // std::cerr << "ProcessEvent: event is null" << std::endl;
+    Napi::TypeError::New(env, "Unknown error handling filesystem event").ThrowAsJavaScriptException();
     return;
   }
 
+  // Translate the event type to the expected event name in the JS code.
+  //
+  // NOTE: This library previously envisioned that some platforms would allow
+  // watching of files directly and some would require watching of a file's
+  // parent folder. EFSW uses the parent-folder approach on all platforms, so
+  // in practice we're not using half of the event names we used to use. That's
+  // why the second argument below is `true`.
+  //
+  // There might be some edge cases that we need to handle here; for instance,
+  // if we're watching a directory and that directory itself is deleted, then
+  // that should be `delete` rather than `child-delete`. Right now we deal with
+  // that in JavaScript, but we could handle it here instead.
   std::string eventName = EventType(event->type, true);
-  // std::cout << "ProcessEvent! " << eventName << std::endl;
 
   std::string newPath;
   std::string oldPath;
@@ -131,19 +141,17 @@ void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* even
       Napi::String::New(env, oldPath)
     });
   } catch (const Napi::Error& e) {
-    // TODO: Unsure why this would happen; but if it's plausible that it would
-    // happen sometimes, then figure out how to surface it.
-
-    // std::cerr << "Napi error in callback.Call: " << e.what() << std::endl;
+    // TODO: Unsure why this would happen.
+    Napi::TypeError::New(env, "Unknown error handling filesystem event").ThrowAsJavaScriptException();
   }
 }
 
 Napi::Value EFSW::Watch(const Napi::CallbackInfo& info) {
-  // std::cout << "Watch" << std::endl;
   auto env = info.Env();
   auto addonData = env.GetInstanceData<AddonData>();
   Napi::HandleScope scope(env);
 
+  // First argument must be a string.
   if (!info[0].IsString()) {
     Napi::TypeError::New(env, "String required").ThrowAsJavaScriptException();
     return env.Null();
@@ -152,62 +160,72 @@ Napi::Value EFSW::Watch(const Napi::CallbackInfo& info) {
   Napi::String path = info[0].ToString();
   std::string cppPath(path);
 
+  // Second argument must be a callback.
   if (!info[1].IsFunction()) {
     Napi::TypeError::New(env, "Function required").ThrowAsJavaScriptException();
     return env.Null();
   }
 
   Napi::Function fn = info[1].As<Napi::Function>();
-
   PathWatcherListener* listener = new PathWatcherListener(env, fn);
 
-  // std::cout << "About to add handle for path: " << cppPath << std::endl;
-
+  // The first call to `Watch` initializes a `FileWatcher`.
   if (!addonData->fileWatcher) {
-    // std::cout << "CREATING WATCHER!!!" << std::endl;
     addonData->fileWatcher = new efsw::FileWatcher();
     addonData->fileWatcher->followSymlinks(true);
     addonData->fileWatcher->watch();
   }
 
+  // EFSW represents watchers as unsigned `int`s; we can easily convert these
+  // to JavaScript.
   WatcherHandle handle = addonData->fileWatcher->addWatch(path, listener, true);
+
   if (handle >= 0) {
     addonData->listeners[handle] = listener;
   } else {
     delete listener;
-    Napi::Error::New(env, "Failed to add watch").ThrowAsJavaScriptException();
+    Napi::Error::New(env, "Failed to add watch; unknown error").ThrowAsJavaScriptException();
     return env.Null();
   }
-  // std::cout << "Watcher handle: " << handle << std::endl;
+
   addonData->watchCount++;
 
+  // The `watch` function returns a JavaScript number much like `setTimeout` or
+  // `setInterval` would; this is the handle that the consumer can use to
+  // unwatch the path later.
   return WatcherHandleToV8Value(handle, env);
 }
 
 Napi::Value EFSW::Unwatch(const Napi::CallbackInfo& info) {
   auto env = info.Env();
   auto addonData = env.GetInstanceData<AddonData>();
-  // std::cout << "Unwatch ID:" << addonData->id << std::endl;
   Napi::HandleScope scope(env);
 
+  // Our sole argument must be a JavaScript number; we convert it to a watcher
+  // handle.
   if (!IsV8ValueWatcherHandle(info[0])) {
     Napi::TypeError::New(env, "Argument must be a number").ThrowAsJavaScriptException();
     return env.Null();
   }
 
   WatcherHandle handle = V8ValueToWatcherHandle(info[0].As<Napi::Number>());
-  // std::cout << "About to unwatch handle:" << handle << std::endl;
 
+  // EFSW doesn’t mind if we give it a handle that it doesn’t recognize; it’ll
+  // just silently do nothing.
   addonData->fileWatcher->removeWatch(handle);
 
+  // Since we’re not listening anymore, we have to stop the associated
+  // `PathWatcherListener` or else Node will think there’s an open handle.
   auto it = addonData->listeners.find(handle);
   if (it != addonData->listeners.end()) {
-    it->second->Stop();  // Release the ThreadSafeFunction
-    addonData->listeners.erase(it);    // Remove from the map
+    it->second->Stop();
+    addonData->listeners.erase(it);
   }
 
   addonData->watchCount--;
   if (addonData->watchCount == 0) {
+    // When this environment isn’t watching any files, we can stop the
+    // `FileWatcher` instance. We’ll start it up again if `Watch` is called.
     EFSW::Cleanup(env);
   }
 
@@ -218,7 +236,7 @@ void EFSW::Cleanup(Napi::Env env) {
   auto addonData = env.GetInstanceData<AddonData>();
   delete addonData->fileWatcher;
   if (addonData && addonData->fileWatcher) {
-    // Clean up all listeners
+    // Clean up all outstanding listeners.
     for (auto& pair : addonData->listeners) {
       pair.second->Stop();
     }
@@ -228,6 +246,5 @@ void EFSW::Cleanup(Napi::Env env) {
 
 void EFSW::Init(Napi::Env env) {
   auto addonData = env.GetInstanceData<AddonData>();
-  // std::cout << "Addon data created!" << addonData->id << std::endl;
   addonData->watchCount = 0;
 }

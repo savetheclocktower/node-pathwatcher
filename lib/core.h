@@ -87,6 +87,8 @@ private:
   Napi::ThreadSafeFunction tsfn;
 };
 
+void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* event);
+
 namespace EFSW {
   class Watcher {
   public:
