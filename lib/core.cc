@@ -57,7 +57,7 @@ void PathWatcherListener::handleFileAction(
 ) {
   if (isShuttingDown) return;
   std::lock_guard<std::mutex> lock(shutdownMutex);
-  if (isShuttingDown);
+  if (isShuttingDown) return;
   // std::cout << "PathWatcherListener::handleFileAction" << std::endl;
   // std::cout << "Action: " << EventType(action, true) << ", Dir: " << dir << ", Filename: " << filename << ", Old Filename: " << oldFilename << std::endl;
 
