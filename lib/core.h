@@ -3,8 +3,8 @@
 #define DEBUG 1
 #include <napi.h>
 #include <string>
-#include <unordered_map>
-#include <memory>
+#include <atomic>
+#include <mutex>
 
 #include "../vendor/efsw/include/efsw/efsw.hpp"
 
@@ -81,7 +81,8 @@ public:
   void Stop();
 
 private:
-  const std::chrono::milliseconds delayDuration{100}; // 100ms delay
+  std::atomic<bool> isShuttingDown{false};
+  std::mutex shutdownMutex;
   Napi::Function callback;
   Napi::ThreadSafeFunction tsfn;
 };

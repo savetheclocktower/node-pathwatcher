@@ -25,6 +25,8 @@ PathWatcherListener::~PathWatcherListener() {
 }
 
 void PathWatcherListener::Stop() {
+  std::lock_guard<std::mutex> lock(shutdownMutex);
+  isShuttingDown = true;
   if (tsfn) {
     tsfn.Release();
   }
@@ -53,6 +55,9 @@ void PathWatcherListener::handleFileAction(
   efsw::Action action,
   std::string oldFilename
 ) {
+  if (isShuttingDown) return;
+  std::lock_guard<std::mutex> lock(shutdownMutex);
+  if (isShuttingDown);
   // std::cout << "PathWatcherListener::handleFileAction" << std::endl;
   // std::cout << "Action: " << EventType(action, true) << ", Dir: " << dir << ", Filename: " << filename << ", Old Filename: " << oldFilename << std::endl;
 
@@ -95,6 +100,7 @@ void PathWatcherListener::handleFileAction(
 }
 
 void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* event) {
+  std::unique_ptr<PathWatcherEvent> eventPtr(event);
   if (event == nullptr) {
     // std::cerr << "ProcessEvent: event is null" << std::endl;
     return;
