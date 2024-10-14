@@ -11,6 +11,6 @@ public:
 
   int id;
   int watchCount = 0;
-  efsw::FileWatcher* fileWatcher;
+  efsw::FileWatcher* fileWatcher = nullptr;
   std::unordered_map<WatcherHandle, PathWatcherListener*> listeners;
 };
