@@ -18,9 +18,9 @@
   },
   "homepage": "http://atom.github.io/node-pathwatcher",
   "scripts": {
-    "prepublish": "grunt prepublish",
     "test": "node spec/run.js",
-    "test-context-safety": "node spec/context-safety.js"
+    "test-context-safety": "node spec/context-safety.js",
+    "clean": "node scripts/clean.js"
   },
   "devDependencies": {
     "chalk": "^4.1.2",
