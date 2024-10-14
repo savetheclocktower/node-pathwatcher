@@ -7,10 +7,24 @@ const { Emitter, Disposable } = require('event-kit');
 const File = require('./file');
 const PathWatcher = require('./main');
 
+// Extended: Represents a directory on disk that can be traversed or watched
+// for changes.
 class Directory {
   realPath = null;
   subscriptionCount = 0;
 
+  /*
+  Section: Construction
+  */
+
+  // Public: Configures a new {Directory} instance.
+  //
+  // No files are accessed. The directory does not yet need to exist.
+  //
+  // * `directoryPath` A {String} containing the absolute path to the
+  //   directory.
+  // * `symlink` (optional) A {Boolean} indicating if the path is a symlink
+  //   (default: `false`).
   constructor(directoryPath, symlink = false, includeDeprecatedAPIs = Grim.includeDeprecatedAPIs) {
     this.emitter = new Emitter();
     this.symlink = symlink;
@@ -35,6 +49,14 @@ class Directory {
     }
   }
 
+  // Public: Creates the directory on disk that corresponds to {::getPath} if
+  // no such directory already exists.
+  //
+  // * `mode` (optional) {Number} that defaults to `0777` and represents the
+  //   default permissions of the directory on supported platforms.
+  //
+  // Returns a {Promise} that resolves to a {Boolean}: `true` if the directory
+  // was created and `false` if it already existed.
   async create (mode = 0o0777) {
     let isExistingDirectory = await this.exists();
     if (isExistingDirectory) return false;
@@ -53,6 +75,21 @@ class Directory {
     });
   }
 
+  /*
+  Section: Event Subscription
+  */
+
+  // Public: Invoke the given callback when the directory’s contents change.
+  //
+  // A directory’s contents are considered to have changed when one of its
+  // children is added, deleted, or renamed. This callback will not fire when
+  // one of its children has its contents changed.
+  //
+  // * `callback` {Function} to be called when the directory’s contents change.
+  //   Takes no arguments.
+  //
+  // Returns a {Disposable} on which {Disposable::dispose} can be called to
+  // unsubscribe.
   onDidChange (callback) {
     this.willAddSubscription();
     return this.trackUnsubscription(
@@ -81,37 +118,62 @@ class Directory {
     });
   }
 
+  // Public: Returns a {Boolean}; always `false`.
   isFile () {
     return false;
   }
 
+  // Public: Returns a {Boolean}; always `true`.
   isDirectory() {
     return true;
   }
 
+  // Public: Returns a {Boolean} indicating whetehr or not this is a symbolic
+  // link.
   isSymbolicLink () {
     return this.symlink;
   }
 
+  // Public: Returns a {Promise} that resolves to a {Boolean}: `true` if the
+  // directory exists, `false` otherwise.
   exists () {
     return new Promise((resolve) => {
       FS.exists(this.getPath(), resolve)
     });
   }
 
+  // Public: Returns a {Boolean}: `true` if the directory exists, `false`
+  // otherwise.
   existsSync () {
     return FS.existsSync(this.getPath());
   }
 
+  // Public: Returns a {Boolean}: `true` if this {Directory} is the root
+  // directory of the filesystem, or `false` if it isn’t.
   isRoot () {
     let realPath = this.getRealPathSync();
     return realPath === this.getParent().getRealPathSync();
   }
 
+  /*
+  Section: Managing Paths
+  */
+
+  // Public: Returns the directory’s {String} path.
+  //
+  // This may include unfollowed symlinks or relative directory entries; or it
+  // may be fully resolved. It depends on what you give it. Anything that
+  // Node’s builtin `fs` and `path` libraries can resolve will also be
+  // understood by {Directory}.
   getPath () {
     return this.path;
   }
 
+  // Public: Returns the directory’s resolved {String} path, resolving symlinks
+  // if necessary.
+  //
+  // This will always be an absolute path; all relative paths are resolved and
+  // all symlinks are followed.
   getRealPathSync () {
     if (!this.realPath) {
       try {
@@ -129,10 +191,17 @@ class Directory {
     return this.realPath;
   }
 
+  // Public: Returns the {String} basename of the directory.
   getBaseName () {
     return Path.basename(this.path);
   }
 
+  // Public: Returns the relative {String} path to the given path from this
+  // directory. If the given path is not a descendant of this directory, will
+  // return its full absolute path.
+  //
+  // * `fullPath` A path to compare against the real, absolute path of this
+  //   {Directory}.
   relativize (fullPath) {
     if (!fullPath) return fullPath;
 
@@ -173,6 +242,14 @@ class Directory {
     }
   }
 
+  // Public: Resolves the given relative path to an absolute path relative to
+  // this directory. If the path is already absolute or prefixed with a URI
+  // scheme, it is returned unchanged.
+  //
+  // * `uri` A {String} containing the path to resolve.
+  //
+  // Returns a {String} containing an absolute path, or `undefined` if the
+  // given URI is falsy (like an empty string).
   resolve (relativePath) {
     if (!relativePath) return;
 
@@ -188,8 +265,13 @@ class Directory {
     }
   }
 
-  // TRAVERSING
+  /*
+  Section: Traversing
+  */
 
+  // Public: Traverse to the parent directory.
+  //
+  // Returns a {Directory}.
   getParent () {
     return new Directory(Path.join(this.path, '..'));
   }
@@ -209,9 +291,9 @@ class Directory {
     return new File(Path.join(this.getPath(), ...fileName));
   }
 
-  // Public: Traverse within this a {Directory} to a child {Directory}. This
-  // method doesn't actually check to see if the {Directory} exists; it just
-  // creates the Directory object.
+  // Public: Traverse within this {Directory} to a child {Directory}. This
+  // method doesn't actually check to see if the directory exists; it just
+  // creates the {Directory} object.
   //
   // You can also access descendant directories by passing multiple arguments.
   // In this usage, all segments should be directory names.
@@ -223,7 +305,8 @@ class Directory {
     return new Directory(Path.join(this.getPath(), ...dirName));
   }
 
-  // Public: Reads file entries in this directory from disk asynchronously.
+  // Public: Reads file entries in this directory from disk asynchronously and
+  // applies a function to each.
   //
   // * `callback` A {Function} to call with the following arguments:
   //   * `error` An {Error}, may be null.
@@ -331,7 +414,9 @@ class Directory {
     return this.isPathPrefixOf(directoryPath, pathToCheck);
   }
 
-  // PRIVATE
+  /*
+  Section: Private
+  */
 
   subscribeToNativeChangeEvents () {
     this.watchSubscription ??= PathWatcher.watch(

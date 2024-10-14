@@ -14,11 +14,24 @@ async function wait (ms) {
 
 const PathWatcher = require('./main');
 
+// Extended: Represents an individual file that can be watched, read from, and
+// written to.
 class File {
   encoding = 'utf8';
   realPath = null;
   subscriptionCount = 0;
 
+  /*
+  Section: Construction
+  */
+
+  // Public: Configures a new {File} instance.
+  //
+  // No files are accessed. The file does not yet need to exist.
+  //
+  // * `filePath` A {String} containing the absolute path to the file.
+  // * `symlink` (optional) A {Boolean} indicating if the path is a symlink
+  //   (default: false).
   constructor(
     filePath,
     symlink = false,
@@ -45,6 +58,13 @@ class File {
     this.reportOnDeprecations = true;
   }
 
+  // Public: Creates the file on disk that corresponds to {::getPath} if no
+  // such file already exists.
+  //
+  // Returns a {Promise} that resolves once the file is created on disk. It
+  // resolves to a boolean value that is `true` if the file was created or
+  // `false` if it already existed.
+  //
   async create () {
     let isExistingFile = await this.exists();
     let parent;
@@ -62,6 +82,13 @@ class File {
   Section: Event Subscription
   */
 
+  // Public: Invoke the given callback when the file’s contents change.
+  //
+  // * `callback` {Function} to be called when the file’s contents change.
+  //   Takes no arguments.
+  //
+  // Returns a {Disposable} on which {Disposable::dispose} can be called to
+  // unsubscribe.
   onDidChange (callback) {
     this.willAddSubscription();
     // Add a small buffer here. If a file has changed, we want to wait briefly
@@ -75,11 +102,25 @@ class File {
     return this.trackUnsubscription(this.emitter.on('did-change', wrappedCallback));
   }
 
+  // Public: Invoke the given callback when the file’s path changes.
+  //
+  // * `callback` {Function} to be called when the file’s path changes.
+  //   Takes no arguments.
+  //
+  // Returns a {Disposable} on which {Disposable::dispose} can be called to
+  // unsubscribe.
   onDidRename (callback) {
     this.willAddSubscription();
     return this.trackUnsubscription(this.emitter.on('did-rename', callback));
   }
 
+  // Public: Invoke the given callback when the file is deleted.
+  //
+  // * `callback` {Function} to be called when the file is deleted.
+  //   Takes no arguments.
+  //
+  // Returns a {Disposable} on which {Disposable::dispose} can be called to
+  // unsubscribe.
   onDidDelete (callback) {
     this.willAddSubscription();
     return this.trackUnsubscription(this.emitter.on('did-delete', callback));
@@ -114,26 +155,36 @@ class File {
   Section: File Metadata
   */
 
+  // Public: Returns a {Boolean}; always `true`.
   isFile () {
     return true;
   }
 
+  // Public: Returns a {Boolean}; always `false`.
   isDirectory () {
     return false;
   }
 
+  // Public: Returns a {Boolean} indicating whether or not this is a symbolic
+  // link.
   isSymbolicLink () {
     return this.symlink;
   }
 
+  // Public: Returns a {Promise} that resolves to a {Boolean}: `true` if the
+  // file exists; `false` otherwise.
   async exists () {
     return new Promise((resolve) => FS.exists(this.getPath(), resolve));
   }
 
+  // Public: Returns a {Boolean}: `true` if the file exists; `false` otherwise.
   existsSync () {
     return FS.existsSync(this.getPath());
   }
 
+  // Public: Get the SHA-1 digest of this file.
+  //
+  // Returns a {Promise} that resolves to a {String}.
   async getDigest () {
     if (this.digest != null) {
       return this.digest;
@@ -142,12 +193,16 @@ class File {
     return this.digest;
   }
 
+  // Public: Get the SHA-1 digest of this file.
+  //
+  // Returns a {String}.
   getDigestSync () {
     if (this.digest == null) {
       this.readSync();
     }
     return this.digest;
   }
+
 
   setDigest (contents) {
     this.digest = crypto
@@ -157,6 +212,10 @@ class File {
     return this.digest;
   }
 
+  // Public: Sets the file's character set encoding name.
+  //
+  // Supports `utf8` natively and whichever other encodings are supported by
+  // the `iconv-lite` package.
   setEncoding (encoding = 'utf8') {
     if (encoding !== 'utf8') {
       iconv ??= require('iconv-lite');
@@ -166,6 +225,8 @@ class File {
     return encoding;
   }
 
+  // Public: Returns the {String} encoding name for this file; default is
+  // `utf8`.
   getEncoding () {
     return this.encoding;
   }
@@ -174,26 +235,25 @@ class File {
   Section: Managing Paths
   */
 
+  // Public: Returns the {String} path for this file.
   getPath () {
     return this.path;
   }
 
+  // Public: Sets the path for the file.
+  //
+  // This should not normally need to be called; use it only when you know a
+  // file’s path has changed and you don’t want to rely on the internal
+  // renaming detection.
+  //
+  // * `path` {String} The new path to set; should be absolute.
   setPath (path) {
     this.path = path;
     this.realPath = null;
   }
 
-  getRealPathSync () {
-    if (this.realPath == null) {
-      try {
-        this.realPath = FS.realpathSync(this.path);
-      } catch (_error) {
-        this.realPath = this.path;
-      }
-    }
-    return this.realPath;
-  }
-
+  // Public: Returns a {Promise} that resolves to this file’s completely
+  // resolved {String} path, following symlinks if necessary.
   async getRealPath () {
     if (this.realPath != null) {
       return this.realPath;
@@ -207,6 +267,21 @@ class File {
     });
   }
 
+  // Public: Returns this file’s completely resolved {String} path, following
+  // symlinks if necessary.
+  getRealPathSync () {
+    if (this.realPath == null) {
+      try {
+        this.realPath = FS.realpathSync(this.path);
+      } catch (_error) {
+        this.realPath = this.path;
+      }
+    }
+    return this.realPath;
+  }
+
+  // Public: Returns the {String} filename of this file without its directory
+  // context.
   getBaseName () {
     return Path.basename(this.path);
   }
@@ -215,6 +290,7 @@ class File {
   Section: Traversing
   */
 
+  // Public: Returns the {Directory} that contains this file.
   getParent () {
     Directory ??= require('./directory');
     return new Directory(Path.dirname(this.path));
@@ -225,35 +301,13 @@ class File {
   Section: Reading and Writing
   */
 
-  readSync (flushCache) {
-    if (!this.existsSync()) {
-      this.cachedContents = null;
-    } else if ((this.cachedContents == null) || flushCache) {
-      let encoding = this.getEncoding();
-      if (encoding === 'utf8') {
-        this.cachedContents = FS.readFileSync(this.getPath(), encoding);
-      } else {
-        iconv ??= require('iconv-lite');
-        this.cachedContents = iconv.decode(
-          FS.readFileSync(this.getPath()),
-          encoding
-        );
-      }
-    }
-    this.setDigest(this.cachedContents);
-    return this.cachedContents;
-  }
-
-  writeFileSync (filePath, contents) {
-    let encoding = this.getEncoding();
-    if (encoding === 'utf8') {
-      return FS.writeFileSync(filePath, contents, { encoding });
-    } else {
-      iconv ??= require('iconv-lite');
-      return FS.writeFileSync(filePath, iconv.encode(contents, encoding));
-    }
-  }
-
+  // Public: Reads the contents of the file.
+  //
+  // * `flushCache` A {Boolean} indicating whether to require a direct read or
+  //   if a cached copy is acceptable.
+  //
+  // Returns a {Promise} that resolves to a {String} (if the file exists) or
+  // `null` (if it does not).
   async read (flushCache) {
     let contents;
     if (!flushCache && this.cachedContents != null) {
@@ -278,6 +332,34 @@ class File {
     return contents;
   }
 
+  // Public: Reads the contents of the file synchronously.
+  //
+  // * `flushCache` A {Boolean} indicating whether to require a direct read or
+  //   if a cached copy is acceptable.
+  //
+  // Returns a {String} (if the file exists) or `null` (if it does not).
+  readSync (flushCache) {
+    if (!this.existsSync()) {
+      this.cachedContents = null;
+    } else if ((this.cachedContents == null) || flushCache) {
+      let encoding = this.getEncoding();
+      if (encoding === 'utf8') {
+        this.cachedContents = FS.readFileSync(this.getPath(), encoding);
+      } else {
+        iconv ??= require('iconv-lite');
+        this.cachedContents = iconv.decode(
+          FS.readFileSync(this.getPath()),
+          encoding
+        );
+      }
+    }
+    this.setDigest(this.cachedContents);
+    return this.cachedContents;
+  }
+
+  // Public: Returns a stream to read the content of the file.
+  //
+  // Returns a {ReadStream} object.
   createReadStream () {
     let encoding = this.getEncoding();
     if (encoding === 'utf8') {
@@ -289,6 +371,11 @@ class File {
     }
   }
 
+  // Public: Overwrites the file with the given text.
+  //
+  // * `text` The {String} text to write to the underlying file.
+  //
+  // Returns a {Promise} that resolves when the file has been written.
   async write (text) {
     let previouslyExisted = await this.exists();
     await this.writeFile(this.getPath(), text);
@@ -299,18 +386,9 @@ class File {
     }
   }
 
-  createWriteStream () {
-    let encoding = this.getEncoding();
-    if (encoding === 'utf8') {
-      return FS.createWriteStream(this.getPath(), { encoding });
-    } else {
-      iconv ??= require('iconv-lite');
-      let stream = iconv.encodeStream(encoding);
-      stream.pipe(FS.createWriteStream(this.getPath()));
-      return stream;
-    }
-  }
-
+  // Public: Overwrites the file with the given text.
+  //
+  // * `text` The {String} text to write to the underlying file.
   writeSync (text) {
     let previouslyExisted = this.existsSync();
     this.writeFileSync(this.getPath(), text);
@@ -325,6 +403,22 @@ class File {
     }
   }
 
+  // Public: Returns a stream to write content to the file.
+  //
+  // Returns a {WriteStream} object.
+  createWriteStream () {
+    let encoding = this.getEncoding();
+    if (encoding === 'utf8') {
+      return FS.createWriteStream(this.getPath(), { encoding });
+    } else {
+      iconv ??= require('iconv-lite');
+      let stream = iconv.encodeStream(encoding);
+      stream.pipe(FS.createWriteStream(this.getPath()));
+      return stream;
+    }
+  }
+
+  // Internal helper method for writing to a file.
   async writeFile (filePath, contents) {
     let encoding = this.getEncoding();
     if (encoding === 'utf8') {
@@ -357,6 +451,17 @@ class File {
           }
         )
       });
+    }
+  }
+
+  // Internal helper method for writing to a file.
+  writeFileSync (filePath, contents) {
+    let encoding = this.getEncoding();
+    if (encoding === 'utf8') {
+      return FS.writeFileSync(filePath, contents, { encoding });
+    } else {
+      iconv ??= require('iconv-lite');
+      return FS.writeFileSync(filePath, iconv.encode(contents, encoding));
     }
   }
 
