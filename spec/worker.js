@@ -84,7 +84,7 @@ if (isMainThread) {
     console.log('Worker', workerData.id, 'creating file:', tempFile);
     fs.writeFileSync(tempFile, '');
     await wait(500);
-    const scheduler = new Scheduler(workerData.id, tempDir);
+    const scheduler = new Scheduler(workerData.id, tempFile);
     scheduler.start();
     await wait(2000);
 
