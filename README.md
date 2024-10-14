@@ -16,9 +16,10 @@ npm install pathwatcher
 
 ## Building
 
-  * Clone the repository
-  * Run `npm install` to install the dependencies
-  * Run `npm test` to run the specs
+* Clone the repository
+* `git submodule init && git submodule update`
+* Run `npm install` to install the dependencies
+* Run `npm test` to run the specs
 
 ## Using
 
