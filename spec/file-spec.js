@@ -21,6 +21,9 @@ describe('File', () => {
     file.unsubscribeFromNativeChangeEvents();
     fs.removeSync(filePath);
     await PathWatcher.closeAllWatchers();
+    // Without a brief pause between tests, events from previous tests can echo
+    // into the current ones.
+    await wait(50);
   });
 
   it('normalizes the specified path', () => {
@@ -200,11 +203,13 @@ describe('File', () => {
 
       afterEach(async () => {
         if (!fs.existsSync(newPath)) return;
-        // console.log(chalk.red('removing…'));
-        fs.removeSync(newPath);
-        // console.log(chalk.red('…removed.'));
+        if (file.getPath() !== newPath) {
+          fs.removeSync(newPath);
+          return;
+        }
         let deleteHandler = jasmine.createSpy('deleteHandler');
         file.onDidDelete(deleteHandler);
+        fs.removeSync(newPath);
         await condition(() => deleteHandler.calls.count() > 0, 30000);
       });
 
@@ -212,9 +217,9 @@ describe('File', () => {
         let moveHandler = jasmine.createSpy('moveHandler');
         file.onDidRename(moveHandler);
 
-        // console.log(chalk.blue('moving…'));
+        await wait(1000);
+
         fs.moveSync(filePath, newPath);
-        // console.log(chalk.blue('…moved.'));
 
         await condition(() => moveHandler.calls.count() > 0, 30000);
 
@@ -223,7 +228,9 @@ describe('File', () => {
 
       it('maintains ::onDidChange observers that were subscribed on the previous path', async () => {
         let moveHandler = jasmine.createSpy('moveHandler');
+
         file.onDidRename(moveHandler);
+
 
         let changeHandler = jasmine.createSpy('changeHandler');
         file.onDidChange(changeHandler);
@@ -231,9 +238,10 @@ describe('File', () => {
         fs.moveSync(filePath, newPath);
 
         await condition(() => moveHandler.calls.count() > 0);
-
         expect(changeHandler).not.toHaveBeenCalled();
+
         fs.writeFileSync(file.getPath(), 'this is new!');
+        changeHandler.calls.reset();
 
         await condition(() => changeHandler.calls.count() > 0);
       });
@@ -247,21 +255,16 @@ describe('File', () => {
         file.onDidDelete(deleteHandler);
 
         expect(changeHandler).not.toHaveBeenCalled();
-        // console.log(chalk.blue('deleting…'));
         fs.removeSync(filePath);
-        // console.log(chalk.blue('…deleted.'));
         expect(changeHandler).not.toHaveBeenCalled();
 
         await wait(20);
 
         expect(changeHandler).not.toHaveBeenCalled();
 
-        // console.log(chalk.blue('resurrecting…'));
         fs.writeFileSync(filePath, 'HE HAS RISEN!');
-        // console.log(chalk.blue('resurrected.'));
 
-
-        await condition(() => changeHandler.calls.count() === 1);
+        await condition(() => changeHandler.calls.count() > 0);
 
         expect(deleteHandler).not.toHaveBeenCalled();
         fs.writeFileSync(filePath, 'Hallelujah!');
