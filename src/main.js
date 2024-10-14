@@ -22,7 +22,7 @@ class HandleWatcher {
     this.start();
   }
 
-  onEvent (event, filePath, oldFilePath) {
+  async onEvent (event, filePath, oldFilePath) {
     filePath &&= path.normalize(filePath);
     oldFilePath &&= path.normalize(oldFilePath);
 
@@ -64,11 +64,27 @@ class HandleWatcher {
         setTimeout(detectRename, 100);
         return;
       case 'delete':
+        // Wait for a very short interval to protect against brief deletions or
+        // spurious deletion events. Git will sometimes briefly delete a file
+        // before restoring it with different contents.
+        await wait(20);
+        if (fs.existsSync(filePath)) return;
         this.emitter.emit(
           'did-change',
           { event: 'delete', newFilePath: null }
         );
         this.close();
+        return;
+      case 'child-delete':
+        // Wait for a very short interval to protect against brief deletions or
+        // spurious deletion events. Git will sometimes briefly delete a file
+        // before restoring it with different contents.
+        await wait(20);
+        if (fs.existsSync(filePath)) return;
+        this.emitter.emit(
+          'did-change',
+          { event, newFilePath: filePath, oldFilePath, rawFilePath: filePath }
+        );
         return;
       case 'unknown':
         throw new Error("Received unknown event for path: " + this.path);
@@ -101,12 +117,10 @@ class HandleWatcher {
     }
   }
 
-  async close () {
+  close () {
     if (!HANDLE_WATCHERS.has(this.handle)) return;
     binding.unwatch(this.handle);
     HANDLE_WATCHERS.delete(this.handle);
-    // Watchers take 100ms to realize they're closed.
-    await wait(100);
   }
 }
 
@@ -217,9 +231,6 @@ class PathWatcher {
   assignRealPath () {
     try {
       this.realPath = fs.realpathSync(this.path);
-      if (this.realPath) {
-        // console.log('We think the real path is:', this.realPath);
-      }
     } catch (_error) {
       this.realPath = null;
     }
@@ -239,14 +250,7 @@ class PathWatcher {
 async function callback(event, handle, filePath, oldFilePath) {
   if (!HANDLE_WATCHERS.has(handle)) return;
 
-  // Grab a reference to the watcher before we wait; it might be deleted from
-  // the registry after we wait.
   let watcher = HANDLE_WATCHERS.get(handle);
-
-  if (event.includes('delete') && fs.existsSync(filePath)) {
-    return;
-  }
-
   watcher.onEvent(event, filePath, oldFilePath);
 }
 
