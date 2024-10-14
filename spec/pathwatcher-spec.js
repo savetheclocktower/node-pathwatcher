@@ -85,6 +85,7 @@ describe('PathWatcher', () => {
       it('fires the callback with the event type and null path', async () => {
         let deleted = false;
         PathWatcher.watch(tempFile, (type, path) => {
+
           if (type === 'delete' && path === null) {
             deleted = true;
           }
@@ -117,48 +118,56 @@ describe('PathWatcher', () => {
   });
 
   describe('when a new file is created under a watched directory', () => {
-    it('fires the callback with the change event and empty path', (done) => {
+    it('fires the callback with the change event and empty path', async () => {
       let newFile = path.join(tempDir, 'file');
       if (fs.existsSync(newFile)) {
         fs.unlinkSync(newFile);
       }
+      let done = false;
       PathWatcher.watch(tempDir, (type, path) => {
-        fs.unlinkSync(newFile);
+        if (fs.existsSync(newFile)) {
+          fs.unlinkSync(newFile);
+        }
         expect(type).toBe('change');
         expect(path).toBe('');
-        done();
+        done = true;
       });
 
       fs.writeFileSync(newFile, 'x');
+      await condition(() => done);
     });
   });
 
   describe('when a file under a watched directory is moved', () => {
-    it('fires the callback with the change event and empty path', (done) => {
+    it('fires the callback with the change event and empty path', async () => {
 
       let newName = path.join(tempDir, 'file2');
+      let done = false;
       PathWatcher.watch(tempDir, (type, path) => {
         expect(type).toBe('change');
         expect(path).toBe('');
-        done();
+        done = true;
       });
 
       fs.renameSync(tempFile, newName);
+      await condition(() => done);
     });
   });
 
   describe('when an exception is thrown in the closed watcher’s callback', () => {
-    it('does not crash', (done) => {
+    it('does not crash', async () => {
+      let done = false;
       let watcher = PathWatcher.watch(tempFile, (_type, _path) => {
         watcher.close();
         try {
           throw new Error('test');
         } catch (e) {
-          done();
+          done = true;
         }
       });
 
       fs.writeFileSync(tempFile, 'changed');
+      await condition(() => done);
     });
   });
 
