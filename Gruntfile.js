@@ -9,8 +9,13 @@ function defineTasks (grunt) {
     pkg: grunt.file.readJSON('package.json'),
 
     shell: {
+      'submodule-update': {
+        command: 'git submodule update --init',
+        options: DEFAULT_COMMAND_OPTIONS
+      },
+
       rebuild: {
-        command: `npm build .`,
+        command: `node-gyp rebuild`,
         options: DEFAULT_COMMAND_OPTIONS
       },
 
@@ -29,7 +34,7 @@ function defineTasks (grunt) {
   grunt.loadNpmTasks('grunt-shell');
   grunt.loadNpmTasks('grunt-atomdoc');
 
-  grunt.registerTask('default', ['shell:rebuild']);
+  grunt.registerTask('default', ['shell:submodule-update', 'shell:rebuild']);
   grunt.registerTask('test', ['default', 'shell:test']);
 
   // TODO: AtomDoc is not being generated now that we've decaffeinated the
