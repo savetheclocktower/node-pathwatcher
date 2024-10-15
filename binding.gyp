@@ -96,6 +96,9 @@
     },
     {
       "target_name": "pathwatcher",
+      "defines": [
+        "NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS"
+      ],
       "dependencies": ["efsw"],
       "cflags!": ["-fno-exceptions"],
       "cflags_cc!": ["-fno-exceptions"],
