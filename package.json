@@ -18,7 +18,8 @@
   },
   "homepage": "http://atom.github.io/node-pathwatcher",
   "scripts": {
-    "install": "grunt",
+    "preinstall": "node scripts/preinstall.js",
+    "install": "node-gyp rebuild",
     "test": "node spec/run.js",
     "test-context-safety": "node spec/context-safety.js",
     "clean": "node scripts/clean.js"
