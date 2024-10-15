@@ -247,8 +247,8 @@ Napi::Value EFSW::Unwatch(const Napi::CallbackInfo& info) {
 }
 
 void EFSW::Cleanup(Napi::Env env) {
+  std::cout << "EFSW::Cleanup" << std::endl;
   auto addonData = env.GetInstanceData<AddonData>();
-  delete addonData->fileWatcher;
   if (addonData && addonData->fileWatcher) {
     // Clean up all outstanding listeners.
     for (auto& pair : addonData->listeners) {
@@ -256,6 +256,7 @@ void EFSW::Cleanup(Napi::Env env) {
     }
     addonData->fileWatcher = nullptr;
   }
+  delete addonData->fileWatcher;
 }
 
 void EFSW::Init(Napi::Env env) {
