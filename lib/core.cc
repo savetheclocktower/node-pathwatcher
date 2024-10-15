@@ -3,6 +3,7 @@
 #include "include/efsw/efsw.hpp"
 #include "napi.h"
 #include <string>
+#include <iostream>
 #ifdef __APPLE__
 #include <sys/stat.h>
 #endif
