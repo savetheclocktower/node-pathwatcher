@@ -88,6 +88,8 @@ void PathWatcherListener::handleFileAction(
     oldPath.assign(oldPathStr.begin(), oldPathStr.end());
   }
 
+  if (!tsfn) return;
+
   napi_status status = tsfn.Acquire();
   if (status != napi_ok) {
     // We couldn't acquire the `tsfn`; it might be in the process of being
