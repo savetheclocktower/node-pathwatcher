@@ -88,8 +88,16 @@ void PathWatcherListener::handleFileAction(
     oldPath.assign(oldPathStr.begin(), oldPathStr.end());
   }
 
+  napi_status status = tsfn.Acquire();
+  if (status != napi_ok) {
+    // We couldn't acquire the `tsfn`; it might be in the process of being
+    // aborted because our environment is terminating.
+    return;
+  }
+
   PathWatcherEvent* event = new PathWatcherEvent(action, watchId, newPath, oldPath);
-  napi_status status = tsfn.BlockingCall(event, ProcessEvent);
+  status = tsfn.BlockingCall(event, ProcessEvent);
+  tsfn.Release();
   if (status != napi_ok) {
     // TODO: Not sure how this could fail, or how we should present it to the
     // user if it does fail. This action runs on a separate thread and it's not
