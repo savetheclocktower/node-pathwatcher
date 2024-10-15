@@ -14,7 +14,10 @@ PathWatcherListener::PathWatcherListener(Napi::Env env, Napi::Function fn)
     callback,
     "pathwatcher-efsw-listener",
     0,
-    1
+    1,
+    [this](Napi::Env env) {
+      this->Stop();
+    }
   );
 }
 
@@ -25,6 +28,7 @@ PathWatcherListener::~PathWatcherListener() {
 void PathWatcherListener::Stop() {
   // Prevent responders from acting while we shut down.
   std::lock_guard<std::mutex> lock(shutdownMutex);
+  if (isShuttingDown) return;
   isShuttingDown = true;
   if (tsfn) {
     tsfn.Release();
