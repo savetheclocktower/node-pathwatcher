@@ -127,7 +127,8 @@ class File {
   }
 
   onWillThrowWatchError (_callback) {
-    // DEPRECATED
+    // Deprecated callback; must return a `Disposable` for compatibility.
+    return new Disposable(() => {});
   }
 
   willAddSubscription () {
