@@ -21,7 +21,7 @@ async function initSubmodules () {
   await exec('git', ['submodule', 'update']);
 }
 
-if (!FS.existsSync(Path.resolve(__dirname, '..', 'vendor', 'efsw'))) {
+if (!FS.existsSync(Path.resolve(__dirname, '..', 'vendor', 'efsw', 'LICENSE'))) {
   console.log('Initializing EFSW submodule…');
   initSubmodules().then(() => console.log('…done.'));
 } else {
