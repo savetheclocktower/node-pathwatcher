@@ -12,7 +12,7 @@ async function wait (ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-const PathWatcher = require('./main');
+let PathWatcher;
 
 // Extended: Represents an individual file that can be watched, read from, and
 // written to.
@@ -508,6 +508,7 @@ class File {
   }
 
   subscribeToNativeChangeEvents () {
+    PathWatcher ??= require('./main');
     this.watchSubscription ??= PathWatcher.watch(
       this.path,
       (...args) => {

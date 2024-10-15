@@ -5,7 +5,7 @@ const async = require('async');
 const { Emitter, Disposable } = require('event-kit');
 
 const File = require('./file');
-const PathWatcher = require('./main');
+let PathWatcher;
 
 // Extended: Represents a directory on disk that can be traversed or watched
 // for changes.
@@ -419,6 +419,7 @@ class Directory {
   */
 
   subscribeToNativeChangeEvents () {
+    PathWatcher ??= require('./main');
     this.watchSubscription ??= PathWatcher.watch(
       this.path,
       (_eventType) => {
