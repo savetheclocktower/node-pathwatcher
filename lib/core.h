@@ -65,10 +65,11 @@ struct PathWatcherEvent {
   }
 };
 
+class AddonData;
 
 class PathWatcherListener: public efsw::FileWatchListener {
 public:
-  PathWatcherListener(Napi::Env env, Napi::Function fn);
+  PathWatcherListener(Napi::Env env, AddonData* addonData);
   ~PathWatcherListener();
   void handleFileAction(
     efsw::WatchID watchId,
@@ -79,15 +80,29 @@ public:
   ) override;
 
   void Stop();
+  int id;
 
 private:
+  AddonData* addonData;
   std::atomic<bool> isShuttingDown{false};
   std::mutex shutdownMutex;
-  Napi::Function callback;
-  Napi::ThreadSafeFunction tsfn;
+  // Napi::Function callback;
+  // Napi::ThreadSafeFunction tsfn;
 };
 
 void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* event);
+
+class PathWatcher : public Napi::Addon<PathWatcher> {
+public:
+  PathWatcher(Napi::Env env, Napi::Object exports);
+  AddonData* addonData;
+
+private:
+  Napi::Value Watch(const Napi::CallbackInfo& info);
+  Napi::Value Unwatch(const Napi::CallbackInfo& info);
+  void SetCallback(const Napi::CallbackInfo& info);
+  void Cleanup(Napi::Env env);
+};
 
 namespace EFSW {
   class Watcher {

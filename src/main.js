@@ -8,6 +8,8 @@ const { Emitter } = require('event-kit');
 const fs = require('fs');
 const path = require('path');
 
+let initialized = false;
+
 const HANDLE_WATCHERS = new Map();
 
 function wait (ms) {
@@ -102,7 +104,7 @@ class HandleWatcher {
 
   start () {
     let troubleWatcher;
-    this.handle = binding.watch(this.path, callback);
+    this.handle = binding.watch(this.path);
     if (HANDLE_WATCHERS.has(this.handle)) {
       troubleWatcher = HANDLE_WATCHERS.get(this.handle);
       troubleWatcher.close();
@@ -247,7 +249,7 @@ class PathWatcher {
   }
 }
 
-async function callback(event, handle, filePath, oldFilePath) {
+async function DEFAULT_CALLBACK(event, handle, filePath, oldFilePath) {
   if (!HANDLE_WATCHERS.has(handle)) return;
 
   let watcher = HANDLE_WATCHERS.get(handle);
@@ -255,6 +257,11 @@ async function callback(event, handle, filePath, oldFilePath) {
 }
 
 function watch (pathToWatch, callback) {
+  console.log('binding:', binding);
+  if (!initialized) {
+    binding.setCallback(DEFAULT_CALLBACK);
+    initialized = true;
+  }
   return new PathWatcher(path.resolve(pathToWatch), callback);
 }
 

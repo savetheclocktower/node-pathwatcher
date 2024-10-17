@@ -1,4 +1,5 @@
 #include "core.h"
+#include "napi.h"
 #pragma once
 
 static int g_next_addon_data_id = 1;
@@ -14,6 +15,9 @@ public:
   // The number of watchers active in this environment.
   int watchCount = 0;
   efsw::FileWatcher* fileWatcher = nullptr;
+
+  Napi::FunctionReference callback;
+  Napi::ThreadSafeFunction tsfn;
 
   // A map that associates `WatcherHandle` values with their
   // `PathWatcherListener` instances.
