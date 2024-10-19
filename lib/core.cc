@@ -8,12 +8,6 @@
 #include <sys/stat.h>
 #endif
 
-// There's exactly one instance of `ThreadSafeFunction` per environment. To
-// avoid passing it into the `PathWatcherListener` class, we'll store it in a
-// map that's keyed on an identifier that is unique to each `Env`.
-static std::unordered_map<int, Napi::ThreadSafeFunction> tsfns;
-static std::mutex tsfnMutex;
-
 static std::string EventType(efsw::Action action, bool isChild) {
   switch (action) {
     case efsw::Actions::Add:
@@ -31,18 +25,18 @@ static std::string EventType(efsw::Action action, bool isChild) {
 
 // This is a bit hacky, but it allows us to stop invoking callbacks more
 // quickly when the environment is terminating.
-bool EnvIsStopping(Napi::Env env) {
+static bool EnvIsStopping(Napi::Env env) {
   PathWatcher* pw = env.GetInstanceData<PathWatcher>();
   return pw->isStopping;
 }
 
 // Ensure a given path has a trailing separator for comparison purposes.
-std::string NormalizePath(std::string path) {
+static std::string NormalizePath(std::string path) {
   if (path.back() == PATH_SEPARATOR) return path;
   return path + PATH_SEPARATOR;
 }
 
-bool PathsAreEqual(std::string pathA, std::string pathB) {
+static bool PathsAreEqual(std::string pathA, std::string pathB) {
   return NormalizePath(pathA) == NormalizePath(pathB);
 }
 
@@ -91,8 +85,11 @@ static void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEven
   }
 }
 
-PathWatcherListener::PathWatcherListener(Napi::Env env, int id, std::string realPath):
- envId(id), realPath(realPath) {}
+PathWatcherListener::PathWatcherListener(
+  Napi::Env env,
+  std::string realPath,
+  Napi::ThreadSafeFunction tsfn
+): realPath(realPath), tsfn(tsfn) {}
 
 void PathWatcherListener::Stop() {
   if (isShuttingDown) return;
@@ -115,15 +112,16 @@ void PathWatcherListener::handleFileAction(
   std::lock_guard<std::mutex> lock(shutdownMutex);
   if (isShuttingDown) return;
 
-
   std::string newPathStr = dir + filename;
   std::vector<char> newPath(newPathStr.begin(), newPathStr.end());
 
   if (PathsAreEqual(newPathStr, realPath)) {
     // This is an event that is happening to the directory itself — like the
     // directory being deleted. Allow it through.
-  } else if (dir != realPath) {
-    // std::cout << "Event in subdirectory; skipping!" << std::endl;
+  } else if (dir != NormalizePath(realPath)) {
+    // Otherwise, we would expect `dir` to be equal to `realPath`; if it isn't,
+    // then we should ignore it. This might be an event that happened to an
+    // ancestor folder or a descendent folder somehow.
     return;
   }
 
@@ -152,15 +150,7 @@ void PathWatcherListener::handleFileAction(
     oldPath.assign(oldPathStr.begin(), oldPathStr.end());
   }
 
-  Napi::ThreadSafeFunction tsfn;
-  {
-    std::lock_guard<std::mutex> lock(tsfnMutex);
-    tsfn = tsfns[envId];
-    // Inability to find `tsfn` in the map would be a possible indicator that
-    // this watcher has just been removed.
-    if (!tsfn) return;
-  }
-
+  if (!tsfn) return;
   napi_status status = tsfn.Acquire();
   if (status != napi_ok) {
     // We couldn't acquire the `tsfn`; it might be in the process of being
@@ -183,7 +173,6 @@ static int next_env_id = 1;
 
 PathWatcher::PathWatcher(Napi::Env env, Napi::Object exports) {
   envId = next_env_id++;
-  // std::cout << "PathWatcher initialized with ID:" << envId << std::endl;
 
   DefineAddon(exports, {
     InstanceMethod("watch", &PathWatcher::Watch),
@@ -210,28 +199,21 @@ Napi::Value PathWatcher::Watch(const Napi::CallbackInfo& info) {
     return env.Null();
   }
 
+  // The wrapper JS will resolve this to the file's real path. We expect to be
+  // dealing with real locations on disk, since that's what EFSW will report to
+  // us anyway.
   Napi::String path = info[0].ToString();
   std::string cppPath(path);
 
-  // std::cout << "PathWatcher::Watch path: [" << cppPath << "]" << std::endl;
-
-  std::string cppRealPath;
-  if (info[1].IsString()) {
-    Napi::String realPath = info[1].ToString();
-    cppRealPath = realPath;
-    // std::cout << "Real path is: [" << cppRealPath << "]" << std::endl;
-  } else {
-    cppRealPath = "";
-  }
-
+  // It's invalid to call `watch` before having set a callback via
+  // `setCallback`.
   if (callback.IsEmpty()) {
     Napi::TypeError::New(env, "No callback set").ThrowAsJavaScriptException();
     return env.Null();
   }
 
   if (listeners.size() == 0) {
-    // std::cout << "PathWatcher::Watch creating TSFN" << std::endl;
-    auto tsfn = Napi::ThreadSafeFunction::New(
+    tsfn = Napi::ThreadSafeFunction::New(
       env,
       callback.Value(),
       "pathwatcher-efsw-listener",
@@ -242,11 +224,9 @@ Napi::Value PathWatcher::Watch(const Napi::CallbackInfo& info) {
         StopAllListeners();
       }
     );
-    std::lock_guard<std::mutex> lock(tsfnMutex);
-    tsfns[envId] = tsfn;
   }
 
-  PathWatcherListener* listener = new PathWatcherListener(env, envId, cppRealPath == "" ? cppPath : cppRealPath);
+  PathWatcherListener* listener = new PathWatcherListener(env, cppPath, tsfn);
 
   // The first call to `Watch` initializes a `FileWatcher`.
   if (listeners.size() == 0) {
@@ -257,18 +237,12 @@ Napi::Value PathWatcher::Watch(const Napi::CallbackInfo& info) {
 
   // EFSW represents watchers as unsigned `int`s; we can easily convert these
   // to JavaScript.
-  WatcherHandle handle = fileWatcher->addWatch(
-    cppRealPath == "" ? cppPath : cppRealPath,
-    listener,
-    false
-  );
-  // std::cout << "Adding watcher at path: " << cppPath << std::endl;
+  WatcherHandle handle = fileWatcher->addWatch(cppPath, listener, false);
 
-  // std::cout << "Listener handle: " << handle << std::endl;
   if (handle >= 0) {
     listeners[handle] = listener;
   } else {
-    // delete listener;
+    delete listener;
     Napi::Error::New(env, "Failed to add watch; unknown error").ThrowAsJavaScriptException();
     return env.Null();
   }
@@ -310,7 +284,10 @@ Napi::Value PathWatcher::Unwatch(const Napi::CallbackInfo& info) {
 }
 
 void PathWatcher::StopAllListeners() {
-  // callback.Reset();
+  // This function is called internally in situations where we detect that the
+  // environment is terminating. At that point, it's not safe to try to release
+  // any `ThreadSafeFunction`s; but we can do the rest of the cleanup work
+  // here.
   for (auto& it: listeners) {
     fileWatcher->removeWatch(it.first);
     it.second->Stop();
@@ -341,11 +318,8 @@ void PathWatcher::Cleanup(Napi::Env env) {
     // this far. It's not entirely understood why. But if that's true, we can
     // skip this part instead of trying to abort a function that doesn't exist
     // and causing a segfault.
-    std::lock_guard<std::mutex> lock(tsfnMutex);
-    Napi::ThreadSafeFunction tsfn = tsfns[envId];
     napi_threadsafe_function _tsfn = tsfn;
     if (_tsfn == nullptr) {
-      std::cout << "Skipping abort because null" << std::endl;
       return;
     }
     // The `ThreadSafeFunction` is the thing that will keep the environment
@@ -353,8 +327,6 @@ void PathWatcher::Cleanup(Napi::Env env) {
     // we should release `tsfn`; when we add a new watcher thereafter, we can
     // create a new `tsfn`.
     tsfn.Abort();
-  } else {
-    std::cout << "Skipping abort because isFinalizing" << std::endl;
   }
 }
 

@@ -61,8 +61,11 @@ struct PathWatcherEvent {
 
 class PathWatcherListener: public efsw::FileWatchListener {
 public:
-  PathWatcherListener(Napi::Env env, int id, std::string realPath);
-  // ~PathWatcherListener();
+  PathWatcherListener(
+    Napi::Env env,
+    std::string realPath,
+    Napi::ThreadSafeFunction tsfn
+  );
   void handleFileAction(
     efsw::WatchID watchId,
     const std::string& dir,
@@ -74,12 +77,10 @@ public:
   void Stop();
 
 private:
-  int envId;
   std::atomic<bool> isShuttingDown{false};
   std::mutex shutdownMutex;
   std::string realPath;
-  // Napi::Function callback;
-  // Napi::ThreadSafeFunction tsfn;
+  Napi::ThreadSafeFunction tsfn;
 };
 
 
