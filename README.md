@@ -21,6 +21,12 @@ npm install pathwatcher
 * Run `npm install` to install the dependencies
 * Run `npm test` to run the specs
 
+## Caveats
+
+This module is context-aware and context-safe; it can be used from multiple worker threads in the same process. If you keep a file-watcher active, though, it’ll keep the environment from closing; you must stop all watchers if you want your script or thread to finish.
+
+If you’re using it in an Electron renderer process, you must take extra care in page reloading scenarios. Be sure to use `closeAllWatchers` well before the page environment is terminated — e.g., by attaching a `beforeunload` listener.
+
 ## Using
 
 ```js
