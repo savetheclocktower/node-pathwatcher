@@ -12,6 +12,7 @@
 // avoid passing it into the `PathWatcherListener` class, we'll store it in a
 // map that's keyed on an identifier that is unique to each `Env`.
 static std::unordered_map<int, Napi::ThreadSafeFunction> tsfns;
+static std::mutex tsfnMutex;
 
 static std::string EventType(efsw::Action action, bool isChild) {
   switch (action) {
@@ -151,10 +152,14 @@ void PathWatcherListener::handleFileAction(
     oldPath.assign(oldPathStr.begin(), oldPathStr.end());
   }
 
-  Napi::ThreadSafeFunction tsfn = tsfns[envId];
-  // Inability to find `tsfn` in the map would be a possible indicator that
-  // this watcher has just been removed.
-  if (!tsfn) return;
+  Napi::ThreadSafeFunction tsfn;
+  {
+    std::lock_guard<std::mutex> lock(tsfnMutex);
+    tsfn = tsfns[envId];
+    // Inability to find `tsfn` in the map would be a possible indicator that
+    // this watcher has just been removed.
+    if (!tsfn) return;
+  }
 
   napi_status status = tsfn.Acquire();
   if (status != napi_ok) {
@@ -190,7 +195,7 @@ PathWatcher::PathWatcher(Napi::Env env, Napi::Object exports) {
 }
 
 PathWatcher::~PathWatcher() {
-  // std::cout << "Finalizing PathWatcher with ID: " << envId << std::endl;
+  std::cout << "Finalizing PathWatcher with ID: " << envId << std::endl;
   isFinalizing = true;
   StopAllListeners();
 }
@@ -237,6 +242,7 @@ Napi::Value PathWatcher::Watch(const Napi::CallbackInfo& info) {
         StopAllListeners();
       }
     );
+    std::lock_guard<std::mutex> lock(tsfnMutex);
     tsfns[envId] = tsfn;
   }
 
@@ -330,11 +336,25 @@ void PathWatcher::SetCallback(const Napi::CallbackInfo& info) {
 
 void PathWatcher::Cleanup(Napi::Env env) {
   if (!isFinalizing) {
+    // `ThreadSafeFunction` wraps an internal `napi_threadsafe_function` that,
+    // in some occasional scenarios, might already be `null` by the time we get
+    // this far. It's not entirely understood why. But if that's true, we can
+    // skip this part instead of trying to abort a function that doesn't exist
+    // and causing a segfault.
+    std::lock_guard<std::mutex> lock(tsfnMutex);
+    Napi::ThreadSafeFunction tsfn = tsfns[envId];
+    napi_threadsafe_function _tsfn = tsfn;
+    if (_tsfn == nullptr) {
+      std::cout << "Skipping abort because null" << std::endl;
+      return;
+    }
     // The `ThreadSafeFunction` is the thing that will keep the environment
     // from terminating if we keep it open. When there are no active watchers,
     // we should release `tsfn`; when we add a new watcher thereafter, we can
     // create a new `tsfn`.
-    tsfns[envId].Abort();
+    tsfn.Abort();
+  } else {
+    std::cout << "Skipping abort because isFinalizing" << std::endl;
   }
 }
 
