@@ -13,7 +13,8 @@ describe('PathWatcher', () => {
 
   beforeEach(() => fs.writeFileSync(tempFile, ''));
   afterEach(async () => {
-    await PathWatcher.closeAllWatchers();
+    PathWatcher.closeAllWatchers();
+    await wait(100);
   });
 
   describe('getWatchedPaths', () => {
@@ -103,17 +104,16 @@ describe('PathWatcher', () => {
       let fileUnderDir = path.join(tempDir, 'file');
       fs.writeFileSync(fileUnderDir, '');
       let done = false;
+
       PathWatcher.watch(tempDir, (type, path) => {
         expect(type).toBe('change');
         expect(path).toBe('');
         done = true;
       });
-
       fs.writeFileSync(fileUnderDir, 'what');
-      await wait(2000);
+      await wait(200);
       fs.unlinkSync(fileUnderDir);
       await condition(() => done);
-
     });
   });
 

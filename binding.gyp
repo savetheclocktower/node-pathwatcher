@@ -111,7 +111,6 @@
         "VCCLCompilerTool": {"ExceptionHandling": 1},
       },
       "sources": [
-        "lib/binding.cc",
         "lib/core.cc",
         "lib/core.h"
       ],

@@ -6,6 +6,7 @@ try {
 }
 const { Emitter } = require('event-kit');
 const fs = require('fs');
+const { stat } = require('fs/promises');
 const path = require('path');
 
 let initialized = false;
@@ -16,8 +17,16 @@ function wait (ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-class HandleWatcher {
+function normalizePath(rawPath) {
+  if (!rawPath.endsWith(path.sep)) return rawPath;
+  return rawPath.substring(0, rawPath.length - 1);
+}
 
+function pathsAreEqual(pathA, pathB) {
+  return normalizePath(pathA) == normalizePath(pathB);
+}
+
+class HandleWatcher {
   constructor(path) {
     this.path = path;
     this.emitter = new Emitter();
@@ -31,39 +40,36 @@ class HandleWatcher {
     switch (event) {
       case 'rename':
         this.close();
-        let detectRename = () => {
-          return fs.stat(
-            this.path,
-            (err) => {
-              if (err) {
-                this.path = filePath;
-                if (process.platform === 'darwin' && /\/\.Trash\//.test(filePath)) {
-                  this.emitter.emit(
-                    'did-change',
-                    { event: 'delete', newFilePath: null }
-                  );
-                  this.close();
-                  return;
-                } else {
-                  this.start();
-                  this.emitter.emit(
-                    'did-change',
-                    { event: 'rename', newFilePath: filePath }
-                  );
-                  return;
-                }
-              } else {
-                this.start();
-                this.emitter.emit(
-                  'did-change',
-                  { event: 'change', newFilePath: null }
-                );
-                return;
-              }
-            }
+        await wait(100);
+        try {
+          await stat(this.path);
+          // File still exists at the same path.
+          this.start();
+          this.emitter.emit(
+            'did-change',
+            { event: 'change', newFilePath: null }
           );
-        };
-        setTimeout(detectRename, 100);
+        } catch (err) {
+          // File does not exist at the old path.
+          this.path = filePath;
+          if (process.platform === 'darwin' && /\/\.Trash\//.test(filePath)) {
+            // We'll treat this like a deletion; no point in continuing to
+            // track this file when it's in the trash.
+            this.emitter.emit(
+              'did-change',
+              { event: 'delete', newFilePath: null }
+            );
+            this.close();
+          } else {
+            // The file has a new location, so let's resume watching it from
+            // there.
+            this.start();
+            this.emitter.emit(
+              'did-change',
+              { event: 'rename', newFilePath: filePath }
+            );
+          }
+        }
         return;
       case 'delete':
         // Wait for a very short interval to protect against brief deletions or
@@ -104,6 +110,9 @@ class HandleWatcher {
 
   start () {
     let troubleWatcher;
+    if (!this.path.endsWith(path.sep)) {
+      this.path += path.sep;
+    }
     this.handle = binding.watch(this.path);
     if (HANDLE_WATCHERS.has(this.handle)) {
       troubleWatcher = HANDLE_WATCHERS.get(this.handle);
@@ -141,6 +150,14 @@ class PathWatcher {
     }
 
     this.assignRealPath();
+
+    // Resolve the real path before we pass it to the native watcher. It's
+    // better at dealing with real paths instead of symlinks and it doesn't
+    // otherwise matter for our purposes.
+    if (this.realPath) {
+      filePath = this.realPath;
+    }
+
     this.emitter = new Emitter();
 
     let stats = fs.statSync(filePath);
@@ -149,12 +166,14 @@ class PathWatcher {
     if (this.isWatchingParent) {
       filePath = path.dirname(filePath);
     }
+
     for (let watcher of HANDLE_WATCHERS.values()) {
-      if (watcher.path === filePath) {
+      if (pathsAreEqual(watcher.path, filePath)) {
         this.handleWatcher = watcher;
         break;
       }
     }
+
     this.handleWatcher ??= new HandleWatcher(filePath);
 
     this.onChange = ({ event, newFilePath, oldFilePath, rawFilePath }) => {
@@ -249,7 +268,7 @@ class PathWatcher {
   }
 }
 
-async function DEFAULT_CALLBACK(event, handle, filePath, oldFilePath) {
+function DEFAULT_CALLBACK(event, handle, filePath, oldFilePath) {
   if (!HANDLE_WATCHERS.has(handle)) return;
 
   let watcher = HANDLE_WATCHERS.get(handle);
@@ -257,7 +276,6 @@ async function DEFAULT_CALLBACK(event, handle, filePath, oldFilePath) {
 }
 
 function watch (pathToWatch, callback) {
-  console.log('binding:', binding);
   if (!initialized) {
     binding.setCallback(DEFAULT_CALLBACK);
     initialized = true;
@@ -265,13 +283,11 @@ function watch (pathToWatch, callback) {
   return new PathWatcher(path.resolve(pathToWatch), callback);
 }
 
-async function closeAllWatchers () {
-  let promises = [];
+function closeAllWatchers () {
   for (let watcher of HANDLE_WATCHERS.values()) {
-    promises.push(watcher?.close());
+    watcher?.close();
   }
   HANDLE_WATCHERS.clear();
-  await Promise.allSettled(promises);
 }
 
 function getWatchedPaths () {

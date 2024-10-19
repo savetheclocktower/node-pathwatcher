@@ -1,24 +1,18 @@
 #pragma once
 
-#define DEBUG 1
 #include <napi.h>
 #include <string>
 #include <atomic>
 #include <mutex>
-
 #include "../vendor/efsw/include/efsw/efsw.hpp"
 
-typedef efsw::WatchID WatcherHandle;
-
-#define WatcherHandleToV8Value(h, e) Napi::Number::New(e, h)
-#define V8ValueToWatcherHandle(v) v.Int32Value()
-#define IsV8ValueWatcherHandle(v) v.IsNumber()
-
 #ifdef _WIN32
-#define PATH_SEPARATOR "\\"
+#define PATH_SEPARATOR '\\'
 #else
-#define PATH_SEPARATOR "/"
+#define PATH_SEPARATOR '/'
 #endif
+
+typedef efsw::WatchID WatcherHandle;
 
 struct PathWatcherEvent {
   efsw::Action type;
@@ -65,12 +59,10 @@ struct PathWatcherEvent {
   }
 };
 
-class AddonData;
-
 class PathWatcherListener: public efsw::FileWatchListener {
 public:
-  PathWatcherListener(Napi::Env env, AddonData* addonData);
-  ~PathWatcherListener();
+  PathWatcherListener(Napi::Env env, int id, std::string realPath);
+  // ~PathWatcherListener();
   void handleFileAction(
     efsw::WatchID watchId,
     const std::string& dir,
@@ -80,48 +72,39 @@ public:
   ) override;
 
   void Stop();
-  int id;
 
 private:
-  AddonData* addonData;
+  int envId;
   std::atomic<bool> isShuttingDown{false};
   std::mutex shutdownMutex;
+  std::string realPath;
   // Napi::Function callback;
   // Napi::ThreadSafeFunction tsfn;
 };
 
-void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEvent* event);
+
+#define WatcherHandleToV8Value(h, e) Napi::Number::New(e, h)
+#define V8ValueToWatcherHandle(v) v.Int32Value()
+#define IsV8ValueWatcherHandle(v) v.IsNumber()
 
 class PathWatcher : public Napi::Addon<PathWatcher> {
 public:
   PathWatcher(Napi::Env env, Napi::Object exports);
-  AddonData* addonData;
+  ~PathWatcher();
+
+  bool isStopping = false;
 
 private:
   Napi::Value Watch(const Napi::CallbackInfo& info);
   Napi::Value Unwatch(const Napi::CallbackInfo& info);
   void SetCallback(const Napi::CallbackInfo& info);
   void Cleanup(Napi::Env env);
+  void StopAllListeners();
+
+  int envId;
+  bool isFinalizing = false;
+  Napi::FunctionReference callback;
+  Napi::ThreadSafeFunction tsfn;
+  std::unordered_map<WatcherHandle, PathWatcherListener*> listeners;
+  efsw::FileWatcher* fileWatcher = nullptr;
 };
-
-namespace EFSW {
-  class Watcher {
-  public:
-    Watcher(const char* path, Napi::Function fn, Napi::Env env);
-    ~Watcher();
-
-    WatcherHandle Start();
-    void Stop();
-  private:
-    const char* path;
-    Napi::Env env;
-    Napi::FunctionReference callback;
-  };
-
-  void Init(Napi::Env env);
-  void Cleanup(Napi::Env env);
-
-  Napi::Value Watch(const Napi::CallbackInfo& info);
-  Napi::Value Unwatch(const Napi::CallbackInfo& info);
-  Napi::Value SetCallback(const Napi::CallbackInfo& info);
-}

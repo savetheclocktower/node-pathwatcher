@@ -18,9 +18,10 @@ describe('Directory', () => {
     directory = new Directory(path.join(__dirname, 'fixtures'));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     PathWatcher.closeAllWatchers();
     isCaseInsensitiveSpy.and.callThrough();
+    await wait(100);
   });
 
   it('normalizes the specified path', () => {
