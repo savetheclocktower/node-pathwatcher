@@ -3,6 +3,7 @@
 build/
 node_modules/
 .node-version
+.tool-versions
 npm-debug.log
 api.json
 package-lock.json
