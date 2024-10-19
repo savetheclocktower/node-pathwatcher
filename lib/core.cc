@@ -184,7 +184,6 @@ PathWatcher::PathWatcher(Napi::Env env, Napi::Object exports) {
 }
 
 PathWatcher::~PathWatcher() {
-  std::cout << "Finalizing PathWatcher with ID: " << envId << std::endl;
   isFinalizing = true;
   StopAllListeners();
 }
@@ -220,7 +219,8 @@ Napi::Value PathWatcher::Watch(const Napi::CallbackInfo& info) {
       0,
       1,
       [this](Napi::Env env) {
-        // std::cout << "Finalizing tsfn" << std::endl;
+        // This is unexpected. We should try to do some cleanup before the
+        // environment terminates.
         StopAllListeners();
       }
     );
