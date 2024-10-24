@@ -1,6 +1,5 @@
 const crypto = require('crypto');
 const Path = require('path');
-const _ = require('underscore-plus');
 const { Emitter, Disposable } = require('event-kit');
 const FS = require('fs-plus');
 const Grim = require('grim');
@@ -470,11 +469,12 @@ class File {
   Section: Private
   */
 
-  handleNativeChangeEvent (eventType, eventPath) {
+  async handleNativeChangeEvent (eventType, eventPath) {
     switch (eventType) {
       case 'delete':
         this.unsubscribeFromNativeChangeEvents();
-        this.detectResurrectionAfterDelay();
+        await wait(50);
+        await this.detectResurrection();
         return;
       case 'rename':
         this.setPath(eventPath);
@@ -488,10 +488,6 @@ class File {
         this.cachedContents = null;
         this.emitter.emit('did-change');
     }
-  }
-
-  detectResurrectionAfterDelay () {
-    return _.delay(() => this.detectResurrection(), 50);
   }
 
   async detectResurrection () {

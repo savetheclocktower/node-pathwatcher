@@ -20,7 +20,7 @@ describe('File', () => {
   afterEach(async () => {
     file.unsubscribeFromNativeChangeEvents();
     fs.removeSync(filePath);
-    await PathWatcher.closeAllWatchers();
+    PathWatcher.closeAllWatchers();
     // Without a brief pause between tests, events from previous tests can echo
     // into the current ones.
     await wait(50);
@@ -218,10 +218,8 @@ describe('File', () => {
         file.onDidRename(moveHandler);
 
         await wait(1000);
-
         fs.moveSync(filePath, newPath);
-
-        await condition(() => moveHandler.calls.count() > 0, 30000);
+        await condition(() => moveHandler.calls.count() > 0);
 
         expect(file.getPath()).toBe(newPath);
       });

@@ -63,7 +63,6 @@ class PathWatcherListener: public efsw::FileWatchListener {
 public:
   PathWatcherListener(
     Napi::Env env,
-    std::string realPath,
     Napi::ThreadSafeFunction tsfn
   );
   void handleFileAction(
@@ -74,13 +73,18 @@ public:
     std::string oldFilename
   ) override;
 
+  void AddPath(std::string path, efsw::WatchID handle);
+  void RemovePath(efsw::WatchID handle);
+  bool IsEmpty();
   void Stop();
+  void Stop(efsw::FileWatcher* fileWatcher);
 
 private:
   std::atomic<bool> isShuttingDown{false};
   std::mutex shutdownMutex;
-  std::string realPath;
+  std::mutex pathsMutex;
   Napi::ThreadSafeFunction tsfn;
+  std::unordered_map<efsw::WatchID, std::string> paths;
 };
 
 
@@ -104,8 +108,9 @@ private:
 
   int envId;
   bool isFinalizing = false;
+  bool isWatching = false;
   Napi::FunctionReference callback;
   Napi::ThreadSafeFunction tsfn;
-  std::unordered_map<WatcherHandle, PathWatcherListener*> listeners;
+  PathWatcherListener* listener;
   efsw::FileWatcher* fileWatcher = nullptr;
 };

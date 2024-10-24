@@ -14,28 +14,43 @@ describe('PathWatcher', () => {
   beforeEach(() => fs.writeFileSync(tempFile, ''));
   afterEach(async () => {
     PathWatcher.closeAllWatchers();
+    // Allow time in between each spec so that file-watchers have a chance to
+    // clean up.
     await wait(100);
   });
 
   describe('getWatchedPaths', () => {
     it('returns an array of all watched paths', () => {
+      let realTempFilePath = fs.realpathSync(tempFile);
+      let expectedWatchPath = path.dirname(realTempFilePath);
+
       expect(PathWatcher.getWatchedPaths()).toEqual([]);
+
+      // Watchers watch the parent directory.
       let watcher1 = PathWatcher.watch(tempFile, EMPTY);
-      expect(PathWatcher.getWatchedPaths()).toEqual([watcher1.handleWatcher.path]);
+      expect(PathWatcher.getWatchedPaths()).toEqual([expectedWatchPath]);
+
+      // Second watcher is a sibling of the first and should be able to reuse
+      // the existing watcher.
       let watcher2 = PathWatcher.watch(tempFile, EMPTY);
-      expect(PathWatcher.getWatchedPaths()).toEqual([watcher1.handleWatcher.path]);
+      expect(PathWatcher.getWatchedPaths()).toEqual([expectedWatchPath]);
       watcher1.close();
-      expect(PathWatcher.getWatchedPaths()).toEqual([watcher1.handleWatcher.path]);
+
+      // Native watcher won't close yet because it knows it had two listeners.
+      expect(PathWatcher.getWatchedPaths()).toEqual([expectedWatchPath]);
       watcher2.close();
+
       expect(PathWatcher.getWatchedPaths()).toEqual([]);
     });
   });
 
   describe('closeAllWatchers', () => {
     it('closes all watched paths', () => {
+      let realTempFilePath = fs.realpathSync(tempFile);
+      let expectedWatchPath = path.dirname(realTempFilePath);
       expect(PathWatcher.getWatchedPaths()).toEqual([]);
-      let watcher1 = PathWatcher.watch(tempFile, EMPTY);
-      expect(PathWatcher.getWatchedPaths()).toEqual([watcher1.handleWatcher.path]);
+      PathWatcher.watch(tempFile, EMPTY);
+      expect(PathWatcher.getWatchedPaths()).toEqual([expectedWatchPath]);
       PathWatcher.closeAllWatchers();
       expect(PathWatcher.getWatchedPaths()).toEqual([]);
     });
@@ -60,6 +75,7 @@ describe('PathWatcher', () => {
     });
   });
 
+
   if (process.platform !== 'linux') {
     describe('when a watched path is renamed #darwin #win32', () => {
       it('fires the callback with the event type and new path and watches the new path', async () => {
@@ -78,26 +94,91 @@ describe('PathWatcher', () => {
 
         expect(eventType).toBe('rename');
         expect(fs.realpathSync(eventPath)).toBe(fs.realpathSync(tempRenamed));
-        expect(PathWatcher.getWatchedPaths()).toEqual([watcher.handleWatcher.path]);
+        expect(PathWatcher.getWatchedPaths()).toEqual([watcher.native.path]);
       });
     });
 
     describe('when a watched path is deleted #darwin #win32', () => {
       it('fires the callback with the event type and null path', async () => {
         let deleted = false;
-        PathWatcher.watch(tempFile, (type, path) => {
 
+        PathWatcher.watch(tempFile, (type, path) => {
           if (type === 'delete' && path === null) {
             deleted = true;
           }
         });
 
         fs.unlinkSync(tempFile);
-
         await condition(() => deleted);
       });
     });
   }
+
+  describe('when a watcher is added underneath an existing watched path', () => {
+    let subDirFile, subDir;
+
+    function cleanup() {
+      if (subDirFile && fs.existsSync(subDirFile)) {
+        fs.rmSync(subDirFile);
+      }
+      if (subDir && fs.existsSync(subDir)) {
+        fs.rmSync(path.dirname(subDir), { recursive: true });
+      }
+    }
+
+    beforeEach(() => cleanup());
+    afterEach(() => cleanup());
+
+    fit('reuses the existing native watcher', async () => {
+      let rootCallback = jasmine.createSpy('rootCallback')
+      let subDirCallback = jasmine.createSpy('subDirCallback')
+      let handle = PathWatcher.watch(tempFile, () => {
+        console.warn('LOLOLOLOLOL IT GOT CALLED');
+        rootCallback();
+      });
+
+      expect(PathWatcher.getNativeWatcherCount()).toBe(1);
+
+      subDir = path.join(tempDir, 'foo', 'bar');
+      fs.mkdirSync(subDir, { recursive: true });
+
+      subDirFile = path.join(subDir, 'test.txt');
+
+      console.log('MAKING SUBHANDLE:\n=================\n\n\n');
+      let subHandle = PathWatcher.watch(subDir, () => {
+        console.warn('WTFWTFWTF?!?');
+        subDirCallback();
+      });
+      expect(PathWatcher.getNativeWatcherCount()).toBe(1);
+
+      console.log('CHANGING FILE:\n========\n', tempFile, '\n\n');
+      fs.writeFileSync(tempFile, 'change');
+      console.log('WAITING:\n========\n\n\n');
+      await condition(() => rootCallback.calls.count() >= 1);
+      console.log('WAITED!:\n=======\n\n\n');
+      expect(subDirCallback.calls.count()).toBe(0);
+
+      console.log('CREATING!:\n=======\n\n\n');
+      fs.writeFileSync(subDirFile, 'create');
+      // The file might get both 'create' and 'change' here. That's fine with
+      // us.
+      await condition(() => subDirCallback.calls.count() >= 1);
+
+      let realTempDir = fs.realpathSync(tempDir);
+      expect(PathWatcher.getWatchedPaths()).toEqual([realTempDir]);
+
+      // Closing the original watcher should not cause the native watcher to
+      // close, since another one is depending on it.
+      handle.close();
+      subDirCallback.calls.reset();
+
+      fs.writeFileSync(subDirFile, 'change');
+      await condition(() => subDirCallback.calls.count() >= 1);
+
+      subHandle.close();
+      expect(PathWatcher.getNativeWatcherCount()).toBe(0);
+    });
+  });
 
   describe('when a file under a watched directory is deleted', () => {
     it('fires the callback with the change event and empty path', async () => {
@@ -110,6 +191,7 @@ describe('PathWatcher', () => {
         expect(path).toBe('');
         done = true;
       });
+
       fs.writeFileSync(fileUnderDir, 'what');
       await wait(200);
       fs.unlinkSync(fileUnderDir);
@@ -205,7 +287,7 @@ describe('PathWatcher', () => {
         fs.writeFileSync(tempFile2, '');
         let watcher1 = PathWatcher.watch(tempFile, EMPTY);
         let watcher2 = PathWatcher.watch(tempFile2, EMPTY);
-        expect(watcher1.handleWatcher).toBe(watcher2.handleWatcher);
+        expect(watcher1.native).toBe(watcher2.native);
       });
     }
   });

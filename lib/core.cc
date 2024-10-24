@@ -87,9 +87,8 @@ static void ProcessEvent(Napi::Env env, Napi::Function callback, PathWatcherEven
 
 PathWatcherListener::PathWatcherListener(
   Napi::Env env,
-  std::string realPath,
   Napi::ThreadSafeFunction tsfn
-): realPath(realPath), tsfn(tsfn) {}
+): tsfn(tsfn) {}
 
 void PathWatcherListener::Stop() {
   if (isShuttingDown) return;
@@ -99,6 +98,33 @@ void PathWatcherListener::Stop() {
   isShuttingDown = true;
 }
 
+void PathWatcherListener::Stop(efsw::FileWatcher* fileWatcher) {
+  {
+    for (auto& it : paths) {
+      fileWatcher->removeWatch(it.first);
+    }
+    paths.clear();
+  }
+  Stop();
+}
+
+void PathWatcherListener::AddPath(std::string path, efsw::WatchID handle) {
+  std::lock_guard<std::mutex> lock(pathsMutex);
+  paths[handle] = path;
+}
+
+void PathWatcherListener::RemovePath(efsw::WatchID handle) {
+  std::lock_guard<std::mutex> lock(pathsMutex);
+  auto it = paths.find(handle);
+  if (it == paths.end()) return;
+  paths.erase(it);
+}
+
+bool PathWatcherListener::IsEmpty() {
+  std::lock_guard<std::mutex> lock(pathsMutex);
+  return paths.empty();
+}
+
 void PathWatcherListener::handleFileAction(
   efsw::WatchID watchId,
   const std::string& dir,
@@ -106,7 +132,22 @@ void PathWatcherListener::handleFileAction(
   efsw::Action action,
   std::string oldFilename
 ) {
-  // std::cout << "PathWatcherListener::handleFileAction dir: " << dir << " filename: " << filename << std::endl;
+  // std::cout << "PathWatcherListener::handleFileAction dir: " << dir << " filename: " << filename << " action: " << EventType(action, true) << std::endl;
+
+  // Since we’re not listening anymore, we have to stop the associated
+  // `PathWatcherListener` so that we know when to invoke cleanup and close the
+  // open handle.
+  std::string realPath;
+  {
+    std::lock_guard<std::mutex> lock(pathsMutex);
+    auto it = paths.find(watchId);
+    if (it == paths.end()) {
+      // Couldn't find watcher. Assume it's been removed.
+      return;
+    }
+    realPath = it->second;
+  }
+
   // Don't try to proceed if we've already started the shutdown process.
   if (isShuttingDown) return;
   std::lock_guard<std::mutex> lock(shutdownMutex);
@@ -115,15 +156,15 @@ void PathWatcherListener::handleFileAction(
   std::string newPathStr = dir + filename;
   std::vector<char> newPath(newPathStr.begin(), newPathStr.end());
 
-  if (PathsAreEqual(newPathStr, realPath)) {
-    // This is an event that is happening to the directory itself — like the
-    // directory being deleted. Allow it through.
-  } else if (dir != NormalizePath(realPath)) {
-    // Otherwise, we would expect `dir` to be equal to `realPath`; if it isn't,
-    // then we should ignore it. This might be an event that happened to an
-    // ancestor folder or a descendent folder somehow.
-    return;
-  }
+  // if (PathsAreEqual(newPathStr, realPath)) {
+  //   // This is an event that is happening to the directory itself — like the
+  //   // directory being deleted. Allow it through.
+  // } else if (dir != NormalizePath(realPath)) {
+  //   // Otherwise, we would expect `dir` to be equal to `realPath`; if it isn't,
+  //   // then we should ignore it. This might be an event that happened to an
+  //   // ancestor folder or a descendent folder somehow.
+  //   return;
+  // }
 
 #ifdef __APPLE__
   // macOS seems to think that lots of file creations happen that aren't
@@ -132,7 +173,8 @@ void PathWatcherListener::handleFileAction(
   // each `child-change` event.
   //
   // Luckily, we can easily check whether or not a file has actually been
-  // created on macOS: we can compare creation time to modification time.
+  // created on macOS: we can compare creation time to modification time. This
+  // weeds out most of the false positives.
   if (action == efsw::Action::Add) {
     struct stat file;
     if (stat(newPathStr.c_str(), &file) != 0) {
@@ -159,6 +201,11 @@ void PathWatcherListener::handleFileAction(
   }
 
   PathWatcherEvent* event = new PathWatcherEvent(action, watchId, newPath, oldPath);
+
+  // TODO: Instead of calling `BlockingCall` once per event, throttle them by
+  // some small amount of time (like 50-100ms). That will allow us to deliver
+  // them in batches more efficiently — and for the wrapper JavaScript code to
+  // do some elimination of redundant events.
   status = tsfn.BlockingCall(event, ProcessEvent);
   tsfn.Release();
   if (status != napi_ok) {
@@ -211,7 +258,7 @@ Napi::Value PathWatcher::Watch(const Napi::CallbackInfo& info) {
     return env.Null();
   }
 
-  if (listeners.size() == 0) {
+  if (!isWatching) {
     tsfn = Napi::ThreadSafeFunction::New(
       env,
       callback.Value(),
@@ -224,25 +271,25 @@ Napi::Value PathWatcher::Watch(const Napi::CallbackInfo& info) {
         StopAllListeners();
       }
     );
-  }
 
-  PathWatcherListener* listener = new PathWatcherListener(env, cppPath, tsfn);
+    listener = new PathWatcherListener(env, tsfn);
 
-  // The first call to `Watch` initializes a `FileWatcher`.
-  if (listeners.size() == 0) {
     fileWatcher = new efsw::FileWatcher();
     fileWatcher->followSymlinks(true);
     fileWatcher->watch();
+
+    isWatching = true;
   }
+
 
   // EFSW represents watchers as unsigned `int`s; we can easily convert these
   // to JavaScript.
-  WatcherHandle handle = fileWatcher->addWatch(cppPath, listener, false);
+  WatcherHandle handle = fileWatcher->addWatch(cppPath, listener, true);
 
   if (handle >= 0) {
-    listeners[handle] = listener;
+    listener->AddPath(cppPath, handle);
   } else {
-    delete listener;
+    // if (listener->IsEmpty()) delete listener;
     Napi::Error::New(env, "Failed to add watch; unknown error").ThrowAsJavaScriptException();
     return env.Null();
   }
@@ -261,23 +308,18 @@ Napi::Value PathWatcher::Unwatch(const Napi::CallbackInfo& info) {
     return env.Null();
   }
 
+  if (!listener) return env.Undefined();
+
   WatcherHandle handle = V8ValueToWatcherHandle(info[0].As<Napi::Number>());
 
   // EFSW doesn’t mind if we give it a handle that it doesn’t recognize; it’ll
   // just silently do nothing.
   fileWatcher->removeWatch(handle);
+  listener->RemovePath(handle);
 
-  // Since we’re not listening anymore, we have to stop the associated
-  // `PathWatcherListener` so that we know when to invoke cleanup and close the
-  // open handle.
-  auto it = listeners.find(handle);
-  if (it != listeners.end()) {
-    it->second->Stop();
-    listeners.erase(it);
-  }
-
-  if (listeners.size() == 0) {
+  if (listener->IsEmpty()) {
     Cleanup(env);
+    isWatching = false;
   }
 
   return env.Undefined();
@@ -288,11 +330,12 @@ void PathWatcher::StopAllListeners() {
   // environment is terminating. At that point, it's not safe to try to release
   // any `ThreadSafeFunction`s; but we can do the rest of the cleanup work
   // here.
-  for (auto& it: listeners) {
-    fileWatcher->removeWatch(it.first);
-    it.second->Stop();
-  }
-  listeners.clear();
+  if (!isWatching) return;
+  if (!listener) return;
+  listener->Stop(fileWatcher);
+
+  delete fileWatcher;
+  isWatching = false;
 }
 
 // Set the JavaScript callback that will be invoked whenever a file changes.
@@ -312,6 +355,8 @@ void PathWatcher::SetCallback(const Napi::CallbackInfo& info) {
 }
 
 void PathWatcher::Cleanup(Napi::Env env) {
+  StopAllListeners();
+
   if (!isFinalizing) {
     // `ThreadSafeFunction` wraps an internal `napi_threadsafe_function` that,
     // in some occasional scenarios, might already be `null` by the time we get
