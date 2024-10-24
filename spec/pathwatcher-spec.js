@@ -129,13 +129,10 @@ describe('PathWatcher', () => {
     beforeEach(() => cleanup());
     afterEach(() => cleanup());
 
-    fit('reuses the existing native watcher', async () => {
+    it('reuses the existing native watcher', async () => {
       let rootCallback = jasmine.createSpy('rootCallback')
       let subDirCallback = jasmine.createSpy('subDirCallback')
-      let handle = PathWatcher.watch(tempFile, () => {
-        console.warn('LOLOLOLOLOL IT GOT CALLED');
-        rootCallback();
-      });
+      let handle = PathWatcher.watch(tempFile, rootCallback);
 
       expect(PathWatcher.getNativeWatcherCount()).toBe(1);
 
@@ -144,21 +141,13 @@ describe('PathWatcher', () => {
 
       subDirFile = path.join(subDir, 'test.txt');
 
-      console.log('MAKING SUBHANDLE:\n=================\n\n\n');
-      let subHandle = PathWatcher.watch(subDir, () => {
-        console.warn('WTFWTFWTF?!?');
-        subDirCallback();
-      });
+      let subHandle = PathWatcher.watch(subDir, subDirCallback);
       expect(PathWatcher.getNativeWatcherCount()).toBe(1);
 
-      console.log('CHANGING FILE:\n========\n', tempFile, '\n\n');
       fs.writeFileSync(tempFile, 'change');
-      console.log('WAITING:\n========\n\n\n');
       await condition(() => rootCallback.calls.count() >= 1);
-      console.log('WAITED!:\n=======\n\n\n');
       expect(subDirCallback.calls.count()).toBe(0);
 
-      console.log('CREATING!:\n=======\n\n\n');
       fs.writeFileSync(subDirFile, 'create');
       // The file might get both 'create' and 'change' here. That's fine with
       // us.
