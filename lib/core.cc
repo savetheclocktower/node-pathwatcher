@@ -3,6 +3,7 @@
 #include "napi.h"
 #include <uv.h>
 #include <string>
+#include <iostream>
 
 #ifdef __APPLE__
 #include <sys/stat.h>
@@ -31,14 +32,14 @@ static bool EnvIsStopping(Napi::Env env) {
 }
 
 // Ensure a given path has a trailing separator for comparison purposes.
-static std::string NormalizePath(std::string path) {
-  if (path.back() == PATH_SEPARATOR) return path;
-  return path + PATH_SEPARATOR;
-}
+// static std::string NormalizePath(std::string path) {
+//   if (path.back() == PATH_SEPARATOR) return path;
+//   return path + PATH_SEPARATOR;
+// }
 
-static bool PathsAreEqual(std::string pathA, std::string pathB) {
-  return NormalizePath(pathA) == NormalizePath(pathB);
-}
+// static bool PathsAreEqual(std::string pathA, std::string pathB) {
+//   return NormalizePath(pathA) == NormalizePath(pathB);
+// }
 
 // This is the main-thread function that receives all `ThreadSafeFunction`
 // calls. It converts the `PathWatcherEvent` struct into JS values before
