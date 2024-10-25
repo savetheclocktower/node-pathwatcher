@@ -6,13 +6,10 @@ try {
 }
 const { Emitter, Disposable, CompositeDisposable } = require('event-kit');
 const fs = require('fs');
-const { stat } = require('fs/promises');
 const { NativeWatcherRegistry } = require('./native-watcher-registry');
 const path = require('path');
 
 let initialized = false;
-
-const HANDLE_WATCHERS = new Map();
 
 // Ensures a path that refers to a directory ends with a path separator.
 function sep (dirPath) {
@@ -25,25 +22,25 @@ function isDirectory (somePath) {
   return stats.isDirectory();
 }
 
-function wait (ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+// function wait (ms) {
+//   return new Promise(r => setTimeout(r, ms));
+// }
 
-function normalizePath(rawPath) {
-  if (rawPath.endsWith(path.sep)) return rawPath;
-  return rawPath + path.sep;
-}
+// function normalizePath(rawPath) {
+//   if (rawPath.endsWith(path.sep)) return rawPath;
+//   return rawPath + path.sep;
+// }
 
-function pathsAreEqual(pathA, pathB) {
-  return normalizePath(pathA) == normalizePath(pathB);
-}
+// function pathsAreEqual(pathA, pathB) {
+//   return normalizePath(pathA) == normalizePath(pathB);
+// }
 
-function equalsOrDescendsFromPath(filePath, possibleParentPath) {
-  if (pathsAreEqual(filePath, possibleParentPath)) return true;
-  filePath = normalizePath(filePath);
-  possibleParentPath = normalizePath(possibleParentPath);
-  return filePath?.startsWith(possibleParentPath);
-}
+// function equalsOrDescendsFromPath(filePath, possibleParentPath) {
+//   if (pathsAreEqual(filePath, possibleParentPath)) return true;
+//   filePath = normalizePath(filePath);
+//   possibleParentPath = normalizePath(possibleParentPath);
+//   return filePath?.startsWith(possibleParentPath);
+// }
 
 let NativeWatcherId = 1;
 
@@ -322,12 +319,12 @@ class PathWatcher {
   }
 
   onNativeEvent (event, callback) {
-    console.debug(
-      'PathWatcher::onNativeEvent',
-      event,
-      'for watcher of path:',
-      this.originalNormalizedPath
-    );
+    // console.debug(
+    //   'PathWatcher::onNativeEvent',
+    //   event,
+    //   'for watcher of path:',
+    //   this.originalNormalizedPath
+    // );
 
     let isWatchedPath = (eventPath) => {
       return eventPath?.startsWith(sep(this.normalizedPath));
@@ -348,10 +345,7 @@ class PathWatcher {
     let newEvent = { ...event };
 
     if (!newWatched && !oldWatched) {
-      console.debug(`This path isn’t one we care about. Skipping!`);
       return;
-    } else {
-      console.log('(got this far)');
     }
 
     switch (newEvent.action) {
@@ -377,7 +371,6 @@ class PathWatcher {
         }
         break;
       case 'child-delete':
-        console.log('CHILD-DELETE scenario!');
         if (!this.isWatchingParent) {
           newEvent.action = 'change';
           newEvent.path = '';
@@ -464,7 +457,6 @@ class PathWatcher {
             newEvent.path = '';
           }
         } else {
-          console.log('FILE CHANGE FILE CHANGE!');
           newEvent.action = 'change';
           newEvent.path = '';
         }
@@ -472,7 +464,6 @@ class PathWatcher {
     } // end switch
 
     if (eventPathIsEqual && newEvent.action === 'create') {
-      console.log('CREATE?!?!?');
       // This file or directory already existed; we checked. Any `create`
       // event for it is spurious.
       return;
@@ -484,14 +475,14 @@ class PathWatcher {
       // live with them.)
       newEvent.path = newEvent.action === 'delete' ? null : '';
     }
-    console.debug(
-      'FINAL EVENT ACTION:',
-      newEvent.action,
-      'PATH',
-      newEvent.path,
-      'CALLBACK:',
-      callback.toString()
-    );
+    // console.debug(
+    //   'FINAL EVENT ACTION:',
+    //   newEvent.action,
+    //   'PATH',
+    //   newEvent.path,
+    //   'CALLBACK:',
+    //   callback.toString()
+    // );
     callback(newEvent.action, newEvent.path);
   }
 
@@ -520,7 +511,6 @@ class PathWatcher {
   }
 
   close () {
-    console.log('Pathwatcher with ID:', this.id, 'is closing!');
     this.active = false;
     this.dispose();
   }

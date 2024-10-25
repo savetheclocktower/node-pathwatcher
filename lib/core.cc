@@ -132,7 +132,7 @@ void PathWatcherListener::handleFileAction(
   efsw::Action action,
   std::string oldFilename
 ) {
-  // std::cout << "PathWatcherListener::handleFileAction dir: " << dir << " filename: " << filename << " action: " << EventType(action, true) << std::endl;
+  std::cout << "PathWatcherListener::handleFileAction dir: " << dir << " filename: " << filename << " action: " << EventType(action, true) << std::endl;
 
   // Since we’re not listening anymore, we have to stop the associated
   // `PathWatcherListener` so that we know when to invoke cleanup and close the
