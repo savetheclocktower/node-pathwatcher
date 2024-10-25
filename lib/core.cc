@@ -3,7 +3,10 @@
 #include "napi.h"
 #include <uv.h>
 #include <string>
+
+#ifdef DEBUG
 #include <iostream>
+#endif
 
 #ifdef __APPLE__
 #include <sys/stat.h>
@@ -133,7 +136,10 @@ void PathWatcherListener::handleFileAction(
   efsw::Action action,
   std::string oldFilename
 ) {
+
+#ifdef DEBUG
   std::cout << "PathWatcherListener::handleFileAction dir: " << dir << " filename: " << filename << " action: " << EventType(action, true) << std::endl;
+#endif
 
   // Since we’re not listening anymore, we have to stop the associated
   // `PathWatcherListener` so that we know when to invoke cleanup and close the
@@ -221,6 +227,10 @@ static int next_env_id = 1;
 
 PathWatcher::PathWatcher(Napi::Env env, Napi::Object exports) {
   envId = next_env_id++;
+
+#ifdef DEBUG
+  std::cout << "THIS IS A DEBUG BUILD!" << std::endl;
+#endif
 
   DefineAddon(exports, {
     InstanceMethod("watch", &PathWatcher::Watch),
